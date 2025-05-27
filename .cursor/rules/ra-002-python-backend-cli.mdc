@@ -1,6 +1,6 @@
 ---
 description: "Guidelines for developing the Research Agent's Python backend CLI, including Python standards, core libraries, KB management, RAG pipeline (chunking, embedding, re-ranking), configuration, and error handling. Applies to files in 'src/research_agent_backend/'."
-globs: "src/research_agent_backend/**/*.py"
+globs: src/research_agent_backend/**/*.py
 alwaysApply: false
 ---
 # Python Backend CLI Standards
@@ -190,4 +190,8 @@ src/research_agent_backend/
 - Default: `cross-encoder/ms-marco-MiniLM-L6-v2`
 - Alternative: `mixedbread-ai/mxbai-rerank-xsmall-v1`
 
-**Reference:** @reflow_prd.md sections 5.1, 5.4, 7.1, 7.4-7.6 for detailed requirements
+**Reference:** [reflow_prd.md](mdc:scripts/reflow_prd.md) sections 5.1, 5.4, 7.1, 7.4-7.6 for detailed requirements
+
+## PRD Compliance
+
+Ensure all functionalities align with FR-KB-XXX, FR-ST-XXX, and FR-LG-XXX as outlined in [reflow_prd.md](mdc:scripts/reflow_prd.md).

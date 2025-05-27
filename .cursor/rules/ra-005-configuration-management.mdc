@@ -1,6 +1,6 @@
 ---
 description: "Guidelines for creating, parsing, and using 'researchagent.config.json' (schema adherence, defaults, dynamic updates like FR-KB-005) and '.env' for API keys for the Research Agent project."
-globs: "researchagent.config.json"
+globs: researchagent.config.json
 alwaysApply: false
 ---
 # Configuration Management Standards

@@ -1,6 +1,6 @@
 ---
 description: "Meta-guidelines for Cursor AI on how to create the 'design_researcher_rules.mdc' file for the Research Agent product. Ensures PRD alignment for AI persona, context extraction, interaction flows, and knowledge management dialogues as specified in PRD sections like 5.7, 8.2, and 8.3."
-globs: "design_researcher_rules.mdc"
+globs: design_researcher_rules.mdc
 alwaysApply: false
 ---
 # Meta-Guidance: Creating `design_researcher_rules.mdc`
@@ -8,7 +8,7 @@ alwaysApply: false
 ## Core Requirements
 
 **✅ REQUIRED:**
-- **Primary Source**: @reflow_prd.md sections 5.7, 8.2, 8.3 for behavior specs
+- **Primary Source**: [reflow_prd.md](mdc:scripts/reflow_prd.md) sections 5.7, 8.2, 8.3 for behavior specs
 - **Format**: Follow Cursor .mdc best practices (YAML frontmatter, concise content)
 - **Persona**: Define "Design Researcher" AI characteristics and interaction patterns
 - **Context Extraction**: Implement user selection → cursor position fallback logic
@@ -149,4 +149,6 @@ alwaysApply: true  # Core operational logic
 - Test context extraction edge cases
 - Verify natural language command patterns
 
-**Reference:** @reflow_prd.md sections 5.7, 8.2, 8.3 for detailed requirements
+**Reference:** [reflow_prd.md](mdc:scripts/reflow_prd.md) sections 5.7, 8.2, 8.3 for detailed requirements
+
+**PRD Alignment**: Rules must directly support requirements in [reflow_prd.md](mdc:scripts/reflow_prd.md) (sections 5.7, 8.2, 8.3).

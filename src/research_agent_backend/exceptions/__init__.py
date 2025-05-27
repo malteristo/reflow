@@ -14,11 +14,34 @@ from .config_exceptions import (
     ConfigurationMergeError,
 )
 
+from .vector_store_exceptions import (
+    VectorStoreError,
+    CollectionNotFoundError,
+    CollectionAlreadyExistsError,
+    DocumentInsertionError,
+    QueryError,
+    ConnectionError,
+    DatabaseInitializationError,
+    MetadataValidationError,
+    EmbeddingDimensionError,
+)
+
 __all__ = [
+    # Configuration exceptions
     "ConfigurationError",
     "ConfigurationFileNotFoundError", 
     "ConfigurationValidationError",
     "EnvironmentVariableError",
     "ConfigurationSchemaError",
     "ConfigurationMergeError",
+    # Vector store exceptions
+    "VectorStoreError",
+    "CollectionNotFoundError",
+    "CollectionAlreadyExistsError",
+    "DocumentInsertionError",
+    "QueryError",
+    "ConnectionError",
+    "DatabaseInitializationError",
+    "MetadataValidationError",
+    "EmbeddingDimensionError",
 ] 

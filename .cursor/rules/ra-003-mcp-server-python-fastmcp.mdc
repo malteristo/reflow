@@ -1,6 +1,6 @@
 ---
 description: "Guidelines for implementing the Python MCP server using the FastMCP framework. Focuses on tool definition, backend CLI integration, data formatting for Cursor, and configuration. Applies to files in 'src/mcp_server/'."
-globs: "src/mcp_server/**/*.py"
+globs: src/mcp_server/**/*.py
 alwaysApply: false
 ---
 # MCP Server Standards (FastMCP)

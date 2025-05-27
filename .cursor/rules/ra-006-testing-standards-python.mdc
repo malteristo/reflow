@@ -1,6 +1,6 @@
 ---
-description: "Defines standards for writing unit and integration tests for the Research Agent's Python components using pytest, including structure, mocking, coverage, and PRD alignment. Applies to test files."
-globs: "tests/**/*.py", "*_test.py"
+description: 
+globs: 
 alwaysApply: false
 ---
 # Python Testing Standards
