@@ -1,0 +1,152 @@
+---
+description: "Meta-guidelines for Cursor AI on how to create the 'design_researcher_rules.mdc' file for the Research Agent product. Ensures PRD alignment for AI persona, context extraction, interaction flows, and knowledge management dialogues as specified in PRD sections like 5.7, 8.2, and 8.3."
+globs: "design_researcher_rules.mdc"
+alwaysApply: false
+---
+# Meta-Guidance: Creating `design_researcher_rules.mdc`
+
+## Core Requirements
+
+**✅ REQUIRED:**
+- **Primary Source**: @reflow_prd.md sections 5.7, 8.2, 8.3 for behavior specs
+- **Format**: Follow Cursor .mdc best practices (YAML frontmatter, concise content)
+- **Persona**: Define "Design Researcher" AI characteristics and interaction patterns
+- **Context Extraction**: Implement user selection → cursor position fallback logic
+
+**❌ AVOID:**
+- Verbose explanations without actionable directives
+- Missing PRD requirement mappings
+- Unclear context extraction logic
+
+## Essential Components
+
+**AI Persona Definition:**
+```markdown
+# AI Persona: Design Researcher
+**✅ BEHAVIOR:**
+- Professional, knowledgeable, approachable tone
+- Cite source documents when providing information
+- Ask clarifying questions for ambiguous queries
+- Focus on SRS/SDD improvement recommendations
+
+**❌ AVOID:**
+- Overly casual or technical jargon
+- Providing information without source context
+- Making assumptions about unclear requests
+```
+
+**Context Extraction Logic (FR-RQ-001):**
+```markdown
+## Context Extraction
+**Priority Order:**
+1. **User-selected text** → Use as `document_context`
+2. **Cursor position fallback** → Find nearest preceding H1-H4 heading
+   - Extract heading + ~400 words or until next same/higher level heading
+   - Pass as `document_context` to backend
+
+**Implementation:**
+- MUST extract context before backend queries
+- Handle empty documents gracefully
+- Preserve markdown structure in context
+```
+
+**Backend Query Parameters (FR-RQ-003):**
+```markdown
+## Backend Integration
+**Required Parameters:**
+- `user_query`: User's research request
+- `document_context`: Extracted context from editor
+
+**Optional Parameters:**
+- `target_collections`: Specific knowledge collections
+- `query_mode`: "general_qa" | "sdd_improvement_suggestions"
+
+**Structured Feedback Handling:**
+```python
+# Response structure from backend
+{
+  "status": "CLARIFICATION_NEEDED" | "LOW_CONFIDENCE_RESULTS" | "success",
+  "message_to_user": "Human-readable feedback",
+  "suggested_keywords": ["keyword1", "keyword2"],
+  "suggested_sections": ["section1", "section2"]
+}
+```
+```
+
+**Knowledge Management Commands:**
+```markdown
+## Collection Management Dialogues
+**✅ Natural Language Patterns:**
+- "Create collection 'XYZ' for project research"
+- "Show all my knowledge collections"
+- "Delete collection 'Old Docs'" (require confirmation)
+- "Link collection 'API Patterns' to current project"
+
+**Confirmation Flow for Deletions:**
+1. Parse deletion intent
+2. Show collection details
+3. Require explicit user confirmation
+4. Execute with feedback message
+```
+
+**Result Presentation (PRD 8.3):**
+```markdown
+## Results Display Format
+**✅ REQUIRED FORMATTING:**
+- **Keyword highlighting** in retrieved snippets
+- **Source context**: "DocX > Section Y > Subsection Z"
+- **Relevance labels**: Map scores to "Highly Relevant" | "Relevant" | "Somewhat Relevant"
+- **User feedback actions**: 👍/👎 per chunk (FR-KA-003)
+- **Source links**: Action to open original document
+
+**Markdown Structure:**
+```markdown
+### 🔍 Research Results
+**Query:** [user's question]
+
+#### Highly Relevant
+📄 **Source:** [Document] > [Section] > [Subsection]
+> [Highlighted snippet with **keywords**]
+👍 👎 📖 Open Source
+
+#### Relevant
+...
+```
+```
+
+## File Structure Requirements
+
+**YAML Frontmatter:**
+```yaml
+---
+description: Research Agent AI persona - context extraction, query handling, knowledge management
+globs: "**/*.md", "**/*.txt"  # Files the Research Agent operates on
+alwaysApply: true  # Core operational logic
+---
+```
+
+**Content Organization:**
+1. **AI Persona** - Behavior and tone definition
+2. **Context Extraction** - User selection + cursor fallback logic
+3. **Backend Integration** - Query formulation and response handling
+4. **Collection Management** - Natural language command patterns
+5. **Result Presentation** - Formatting and user feedback integration
+
+## PRD Compliance Checklist
+
+**✅ Must Address:**
+- [ ] FR-SI-004: Rule's role in defining AI behavior
+- [ ] FR-RQ-001: Context extraction from active editor
+- [ ] FR-RQ-003: Backend query standardization
+- [ ] FR-RQ-009: Query refinement feedback loop
+- [ ] FR-KA-003: User feedback collection
+- [ ] Section 8.2: Complete AI persona specification
+- [ ] Section 8.3: Results presentation format
+
+**Quality Validation:**
+- Map each rule section to specific PRD requirements
+- Include concrete examples for complex logic
+- Test context extraction edge cases
+- Verify natural language command patterns
+
+**Reference:** @reflow_prd.md sections 5.7, 8.2, 8.3 for detailed requirements

@@ -1,0 +1,281 @@
+---
+description: High-level architecture patterns and component design for the Research Agent CLI application.
+globs: src/**/*.py, docs/**/*.md
+alwaysApply: true
+---
+# Research Agent: System Architecture
+
+## **Architecture Overview**
+
+The Research Agent follows a **modular, local-first architecture** with clear separation between CLI backend, MCP server interface, and vector database operations. Design implements FR-SI-001 through FR-SI-003 from [reflow_prd.md](mdc:scripts/reflow_prd.md).
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Cursor IDE    │◄──►│   MCP Server     │◄──►│  Backend CLI    │
+│   (Client)      │    │  (FastMCP)       │    │  (Core Logic)   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │                        │
+                                │                        ▼
+                                │               ┌─────────────────┐
+                                │               │  Vector Store   │
+                                │               │  (ChromaDB)     │
+                                │               └─────────────────┘
+                                │                        │
+                                │                        ▼
+                                │               ┌─────────────────┐
+                                └──────────────►│  Knowledge Base │
+                                                │  (Documents)    │
+                                                └─────────────────┘
+```
+
+## **Core Components**
+
+### **Backend CLI (`src/research_agent_backend/`)**
+- **Purpose**: Core RAG pipeline and knowledge management
+- **Technology**: Python + Typer + ChromaDB + sentence-transformers
+- **Responsibilities**:
+  - Document ingestion and chunking (FR-KB-002)
+  - Embedding generation and caching (FR-KB-003) 
+  - Vector search and re-ranking (FR-RQ-005, FR-RQ-008)
+  - Collection and project management (FR-KB-005)
+
+```python
+# ✅ DO: Clear component separation
+class RAGQueryEngine:
+    """Implements FR-RQ-005: Core query processing pipeline."""
+    
+    def __init__(self, vector_store: VectorStore, embedder: EmbeddingService):
+        self.vector_store = vector_store
+        self.embedder = embedder
+        self.reranker = CrossEncoderReranker()
+    
+    async def query(self, query: str, collections: List[str]) -> QueryResult:
+        # Vector search → re-ranking → formatting
+        pass
+
+# ❌ DON'T: Monolithic classes mixing concerns
+class EverythingManager:
+    def do_all_things(self, *args):  # Too broad, unclear responsibilities
+        pass
+```
+
+### **MCP Server (`src/mcp_server/`)**
+- **Purpose**: Bridge between Cursor IDE and backend CLI
+- **Technology**: Python + FastMCP framework
+- **Responsibilities**:
+  - Tool definition and parameter validation (FR-SI-001)
+  - CLI command orchestration and response formatting
+  - Structured feedback generation for query refinement
+
+```python
+# ✅ DO: Clean MCP tool definitions
+@mcp.tool()
+def query_knowledge_base(
+    query: str,
+    collections: Optional[str] = None,
+    top_k: int = 10
+) -> dict:
+    """Search knowledge base with re-ranking - implements FR-RQ-003."""
+    try:
+        # Call backend CLI, format response for Cursor
+        result = subprocess.run([...], capture_output=True)
+        return {"status": "success", "results": parse_results(result.stdout)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# ❌ DON'T: Direct database access from MCP
+@mcp.tool() 
+def bad_query(query: str):
+    db = chromadb.Client()  # Bypass CLI, breaks architecture
+    return db.query(query)
+```
+
+### **Vector Database Layer**
+- **Primary**: ChromaDB with persistent storage (FR-ST-002)
+- **Fallback**: SQLite + sqlite-vec for compatibility
+- **Schema**: Supports `user_id`, `team_id`, `access_permissions` for future scalability
+
+## **Data Flow Patterns**
+
+### **Document Ingestion Pipeline (FR-KB-002)**
+```python
+# ✅ DO: Clear pipeline stages
+def ingest_document(file_path: str, collection: str) -> IngestResult:
+    """Document processing pipeline."""
+    # 1. Parse and chunk (Markdown-aware)
+    chunks = document_processor.chunk_markdown(file_path)
+    
+    # 2. Generate embeddings (batch processing)
+    embeddings = embedding_service.embed_batch([c.content for c in chunks])
+    
+    # 3. Store with metadata
+    vector_store.add_documents(collection, chunks, embeddings)
+    
+    return IngestResult(chunks_created=len(chunks))
+
+# ❌ DON'T: Inline processing without clear stages
+def bad_ingest(file):
+    content = open(file).read()
+    # Everything mixed together, hard to test/debug
+    db.add(embed(chunk(content)))
+```
+
+### **Query Processing Pipeline (FR-RQ-005)**
+```python
+# ✅ DO: Composable query pipeline
+async def process_query(query: str, collections: List[str]) -> QueryResult:
+    """RAG query pipeline with re-ranking."""
+    # 1. Query embedding
+    query_vector = await embedding_service.embed_text(query)
+    
+    # 2. Vector similarity search
+    candidates = vector_store.query(
+        query_vector, 
+        collections=collections,
+        top_k=50  # Over-retrieve for re-ranking
+    )
+    
+    # 3. Cross-encoder re-ranking
+    reranked = reranker.rerank(query, candidates, top_k=10)
+    
+    # 4. Format with metadata and relevance indicators
+    return format_results_with_context(reranked)
+```
+
+## **Configuration Architecture**
+
+### **Configuration Hierarchy**
+```
+researchagent.config.json     # System settings, model configs
+├── embedding_model: {...}    # Model selection and parameters
+├── chunking_strategy: {...}  # Document processing settings
+├── collections: {...}        # Collection definitions and metadata
+└── rag_pipeline: {...}       # Query processing parameters
+
+.env                          # API keys and secrets only
+├── ANTHROPIC_API_KEY
+├── OPENAI_API_KEY 
+└── PERPLEXITY_API_KEY
+```
+
+```python
+# ✅ DO: Configuration-driven behavior
+@dataclass
+class RAGConfig:
+    """Centralized configuration - implements FR-CF-001."""
+    embedding_model: str = "multi-qa-MiniLM-L6-cos-v1"
+    chunk_size: int = 512
+    chunk_overlap: int = 50
+    rerank_top_k: int = 10
+    
+    @classmethod
+    def load_from_file(cls, path: str) -> 'RAGConfig':
+        # Load and validate configuration
+        pass
+
+# ❌ DON'T: Hard-coded constants scattered throughout
+CHUNK_SIZE = 512  # Magic number in random file
+MODEL_NAME = "some-model"  # Hard-coded in another file
+```
+
+## **Error Handling and Logging**
+
+### **Centralized Error Management**
+```python
+# ✅ DO: Structured error handling
+class ResearchAgentError(Exception):
+    """Base exception for Research Agent operations."""
+    pass
+
+class EmbeddingError(ResearchAgentError):
+    """Embedding generation failures."""
+    pass
+
+class VectorStoreError(ResearchAgentError):
+    """Vector database operation failures."""
+    pass
+
+# Structured logging
+logger = logging.getLogger("research_agent")
+logger.info("Query processed", extra={
+    "query_id": query_id,
+    "collections": collections,
+    "result_count": len(results)
+})
+```
+
+## **Testing Architecture**
+
+### **Test Organization**
+```
+tests/
+├── unit/                     # Component isolation tests
+│   ├── test_embeddings.py   # Embedding service tests
+│   ├── test_chunking.py     # Document processing tests
+│   └── test_vector_store.py # Vector operations tests
+├── integration/              # Component interaction tests
+│   ├── test_rag_pipeline.py # End-to-end query flow
+│   └── test_cli_commands.py # CLI integration tests
+└── e2e/                     # Full system tests
+    └── test_mcp_integration.py # MCP server workflows
+```
+
+## **Performance and Scalability Patterns**
+
+### **Caching Strategy**
+```python
+# ✅ DO: Multi-level caching
+class EmbeddingService:
+    def __init__(self):
+        self.model_cache = {}        # Model instances
+        self.embedding_cache = {}    # Computed embeddings
+        
+    async def embed_text(self, text: str) -> List[float]:
+        # Check cache before computation
+        cache_key = self._cache_key(text)
+        if cache_key in self.embedding_cache:
+            return self.embedding_cache[cache_key]
+        
+        # Compute and cache
+        embedding = await self._compute_embedding(text)
+        self.embedding_cache[cache_key] = embedding
+        return embedding
+```
+
+### **Batch Processing**
+```python
+# ✅ DO: Efficient batch operations
+async def ingest_folder(folder_path: str, collection: str) -> BatchResult:
+    """Batch document ingestion with progress tracking."""
+    files = discover_markdown_files(folder_path)
+    
+    # Process in configurable batches
+    batch_size = config.ingestion_batch_size
+    for batch in chunk_list(files, batch_size):
+        await process_document_batch(batch, collection)
+        yield ProgressUpdate(processed=len(batch))
+```
+
+## **Future Scalability Design**
+
+### **Team Features Foundation**
+- **User/Team ID Support**: All data includes `user_id`, `team_id` metadata
+- **Permission Framework**: Collection access controls designed but not enforced
+- **Service Abstraction**: Interface-based design for future distributed deployment
+
+```python
+# ✅ DO: Design for future team features
+@dataclass
+class DocumentMetadata:
+    """Document metadata with team scalability."""
+    user_id: str
+    team_id: Optional[str] = None
+    access_permissions: List[str] = field(default_factory=list)
+    visibility: Literal["private", "team", "public"] = "private"
+```
+
+## **References**
+
+- **Project Standards**: [ra-001-project-overview-and-standards.mdc](mdc:.cursor/rules/ra-001-project-overview-and-standards.mdc)
+- **PRD Requirements**: [reflow_prd.md](mdc:scripts/reflow_prd.md)
+- **Development Workflow**: [dev_workflow.mdc](mdc:.cursor/rules/dev_workflow.mdc)

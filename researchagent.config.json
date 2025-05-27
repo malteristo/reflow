@@ -1,0 +1,19 @@
+{
+  "extends": "./config/defaults/default_config.json",
+  "project": {
+    "name": "Research Agent",
+    "version": "0.1.0",
+    "description": "AI-powered research agent with local-first RAG capabilities"
+  },
+  "embedding_model": {
+    "name": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+    "type": "local"
+  },
+  "vector_store": {
+    "persist_directory": "./data/chroma_db"
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "./logs/research_agent.log"
+  }
+} 

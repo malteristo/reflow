@@ -1,0 +1,193 @@
+---
+description: "Guidelines for developing the Research Agent's Python backend CLI, including Python standards, core libraries, KB management, RAG pipeline (chunking, embedding, re-ranking), configuration, and error handling. Applies to files in 'src/research_agent_backend/'."
+globs: "src/research_agent_backend/**/*.py"
+alwaysApply: false
+---
+# Python Backend CLI Standards
+
+## Core Requirements
+
+**✅ REQUIRED:**
+- **Python 3.10+** with PEP 8 compliance
+- **Libraries**: `chromadb`, `sentence-transformers`, `typer`, `python-dotenv`
+- **Type hints** on all functions
+- **Docstrings** on all modules, classes, functions
+
+**❌ AVOID:**
+- Hard-coded configurations
+- Missing error handling
+- Non-typed function signatures
+
+## Knowledge Base Management
+
+**Document Ingestion (FR-KB-001, FR-KB-003):**
+```python
+# ✅ Good: Clear typing and error handling
+def ingest_documents(
+    folder_path: Path, 
+    collection_name: str
+) -> IngestResult:
+    """Ingest .md documents - implements FR-KB-001."""
+    try:
+        documents = load_markdown_files(folder_path)
+        return process_documents(documents, collection_name)
+    except Exception as e:
+        logger.error(f"Ingestion failed: {e}")
+        raise
+
+# ❌ Avoid: No types, unclear purpose
+def ingest(path, name):
+    return do_stuff(path, name)
+```
+
+**Collection Management (FR-CM-001, FR-CM-002):**
+- Support `fundamental` and `project-specific` collection types
+- Include re-indexing detection for embedding model changes (FR-KB-005)
+- Validate collection names and handle conflicts
+
+## Hybrid Chunking Strategy (FR-KB-002.1)
+
+**Implementation Requirements:**
+```python
+# ✅ Good: Configurable hybrid chunking
+class HybridChunker:
+    def __init__(self, config: ChunkingConfig):
+        self.chunk_size = config.chunk_size
+        self.overlap = config.chunk_overlap
+        self.headers = config.markdown_headers_to_split_on
+        self.atomic_code = config.handle_code_blocks_as_atomic
+        
+    def chunk_document(self, content: str) -> List[Chunk]:
+        """Markdown-aware + recursive splitting."""
+        # 1. Split by headers
+        # 2. Handle code blocks atomically 
+        # 3. Recursive split prose sections
+        # 4. Extract rich metadata
+```
+
+**Metadata Extraction (FR-KB-002.3):**
+```python
+@dataclass
+class ChunkMetadata:
+    source_document_id: str
+    document_title: str
+    header_hierarchy: List[str]  # ["Main", "Sub", "Detail"]
+    chunk_sequence_id: int
+    content_type: Literal["prose", "code_block", "table"]
+    code_language: Optional[str] = None
+```
+
+## RAG Pipeline
+
+**Embedding Generation (FR-KB-002.2):**
+```python
+# ✅ Good: Configurable embedding model
+class EmbeddingService:
+    def __init__(self, model_config: ModelConfig):
+        self.model = SentenceTransformer(
+            model_config.model_name_or_path
+        )
+    
+    def generate_embeddings(self, texts: List[str]) -> np.ndarray:
+        """Generate embeddings - implements FR-KB-002.2."""
+        return self.model.encode(texts)
+```
+
+**Query & Re-ranking (FR-RQ-005, FR-RQ-008):**
+```python
+# ✅ Good: Two-stage retrieval with re-ranking
+def query_knowledge_base(
+    query: str,
+    collections: List[str],
+    top_k: int = 20,
+    top_n: int = 5
+) -> QueryResult:
+    """Implements FR-RQ-005, FR-RQ-008."""
+    # 1. Initial retrieval (top_k candidates)
+    candidates = vector_search(query, collections, top_k)
+    
+    # 2. Re-rank with cross-encoder
+    reranked = cross_encoder.rank(query, candidates)
+    
+    # 3. Return top_n with relevance indicators
+    return QueryResult(chunks=reranked[:top_n])
+```
+
+**Query Refinement Feedback (FR-RQ-009):**
+```python
+@dataclass
+class QueryFeedback:
+    status: Literal["success", "clarification_needed", "low_confidence"]
+    message_to_user: str
+    suggested_keywords: Optional[List[str]] = None
+    suggested_sections: Optional[List[str]] = None
+```
+
+## Configuration Integration
+
+**Load from researchagent.config.json:**
+```python
+# ✅ Good: Configuration-driven behavior
+@dataclass
+class BackendConfig:
+    vector_db: VectorDBConfig
+    embedding_model: ModelConfig
+    chunking: ChunkingConfig
+    rag_params: RAGConfig
+    
+    @classmethod
+    def from_file(cls, config_path: Path) -> 'BackendConfig':
+        """Load configuration - see ra-005 rule."""
+```
+
+## Error Handling & Logging
+
+**Standard Patterns:**
+```python
+# ✅ Good: Comprehensive error handling
+import logging
+
+logger = logging.getLogger(__name__)
+
+def process_document(doc_path: Path) -> ProcessResult:
+    """Process document with proper error handling."""
+    try:
+        content = doc_path.read_text(encoding='utf-8')
+        return chunk_and_embed(content)
+    except FileNotFoundError:
+        logger.error(f"Document not found: {doc_path}")
+        raise DocumentNotFoundError(f"File {doc_path} not found")
+    except Exception as e:
+        logger.error(f"Processing failed for {doc_path}: {e}")
+        raise ProcessingError(f"Failed to process {doc_path}: {e}")
+```
+
+**CLI Exit Codes:**
+- `0`: Success
+- `1`: General error
+- `2`: Configuration error
+- `3`: Database error
+
+## Module Organization
+
+```
+src/research_agent_backend/
+├── cli/                    # Typer CLI commands
+├── kb/                     # Knowledge base operations
+├── processing/             # Document chunking & embedding
+├── rag/                    # Query pipeline & re-ranking
+├── config/                 # Configuration management
+└── utils/                  # Shared utilities
+```
+
+## Default Models
+
+**Embedding (FR-CF-003):**
+- Default: `sentence-transformers/multi-qa-MiniLM-L6-cos-v1`
+- Alternative: `BAAI/bge-base-en-v1.5`
+
+**Re-ranking:**
+- Default: `cross-encoder/ms-marco-MiniLM-L6-v2`
+- Alternative: `mixedbread-ai/mxbai-rerank-xsmall-v1`
+
+**Reference:** @reflow_prd.md sections 5.1, 5.4, 7.1, 7.4-7.6 for detailed requirements

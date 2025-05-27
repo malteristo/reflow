@@ -1,0 +1,331 @@
+---
+description: "Defines API contract, data structures (requests/responses/errors), and interaction logic for Research Agent backend CLI and MCP server communication, including structured feedback for query refinement."
+alwaysApply: false # This is an Agent Requested rule
+---
+
+# Backend CLI ↔ MCP Server API Contract
+
+## Communication Protocol
+
+**✅ REQUIRED:**
+- **Success**: JSON to `stdout`, exit code 0
+- **Error**: JSON to `stdout` (preferred) or `stderr`, non-zero exit code
+- **Stateless**: All context passed explicitly
+- **Consistent**: Standard response structures
+
+**❌ AVOID:**
+- Mixed response formats
+- State-dependent operations
+- Unstructured error messages
+
+## Standard Response Structures
+
+**Success Response Pattern:**
+```json
+{
+  "success": true,
+  "data": {
+    // Operation-specific payload
+  }
+}
+```
+
+**Error Response Pattern:**
+```json
+{
+  "success": false,
+  "error_code": "VALIDATION_ERROR",
+  "message": "User-friendly error description",
+  "details": {
+    "field_errors": {
+      "parameter_name": "Specific error detail"
+    }
+  }
+}
+```
+
+## Core API Operations
+
+### 1. Query Knowledge Base (FR-RQ-003, FR-RQ-005, FR-RQ-008)
+
+**CLI Command:**
+```bash
+research-agent-cli query "user query" \
+  --collections "coll1,coll2" \
+  --context "document context" \
+  --top_k 20 --top_n 5
+```
+
+**Response Data Structure:**
+```python
+# ✅ Good: Complete response with refinement feedback
+@dataclass
+class RetrievedChunk:
+    chunk_id: str
+    text: str
+    source_document_id: str
+    document_title: Optional[str]
+    header_hierarchy: Optional[List[str]]
+    similarity_score: float          # Vector search score
+    rerank_score: Optional[float]    # Cross-encoder score
+    content_type: Literal["prose", "code_block", "table"]
+    code_language: Optional[str] = None
+
+@dataclass 
+class QueryFeedback:  # FR-RQ-009
+    status: Literal["success", "clarification_needed", "low_confidence"]
+    message_to_user: str
+    suggested_keywords: Optional[List[str]] = None
+    suggested_sections: Optional[List[str]] = None
+
+@dataclass
+class QueryResponse:
+    retrieved_chunks: List[RetrievedChunk]
+    query_feedback: Optional[QueryFeedback] = None
+```
+
+**Example Success Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "retrieved_chunks": [
+      {
+        "chunk_id": "doc1_chunk3",
+        "text": "RAG implementation requires...",
+        "source_document_id": "design_patterns.md",
+        "similarity_score": 0.87,
+        "rerank_score": 0.92,
+        "content_type": "prose"
+      }
+    ],
+    "query_feedback": {
+      "status": "clarification_needed",
+      "message_to_user": "Query is broad. Consider specifying implementation details.",
+      "suggested_keywords": ["vector database", "embedding model"]
+    }
+  }
+}
+```
+
+### 2. Document Ingestion (FR-KB-001, FR-KB-003)
+
+**CLI Commands:**
+```bash
+# File ingestion
+research-agent-cli ingest file "path/to/doc.md" --collection_id "docs"
+
+# Text snippet
+research-agent-cli ingest text "content" --collection_id "docs" --title "Title"
+```
+
+**Response Structure:**
+```python
+@dataclass
+class IngestResponse:
+    document_id: str
+    collection_id: str
+    status_message: str
+    chunks_created: int
+```
+
+### 3. Collection Management (FR-CM-001, FR-CM-002, FR-CM-003)
+
+**CLI Commands:**
+```bash
+# Create collection
+research-agent-cli collections create "name" --type "fundamental"
+
+# List collections  
+research-agent-cli collections list
+
+# Delete collection
+research-agent-cli collections delete "collection_id" --confirm
+```
+
+**Response Structures:**
+```python
+@dataclass
+class CollectionInfo:
+    collection_id: str
+    name: str
+    type: Literal["fundamental", "project-specific"]
+    document_count: int
+
+@dataclass
+class CreateCollectionResponse:
+    collection_id: str
+    name: str
+    type: str
+    status_message: str
+
+@dataclass  
+class ListCollectionsResponse:
+    collections: List[CollectionInfo]
+```
+
+### 4. Re-indexing Management (FR-KB-005)
+
+**CLI Commands:**
+```bash
+# Check re-index status
+research-agent-cli index check_status --collection_id "docs"
+
+# Trigger re-indexing
+research-agent-cli index reindex --collection_id "docs"
+```
+
+**Response Structures:**
+```python
+@dataclass
+class ReindexStatus:
+    reindex_needed: bool
+    message: str
+    current_model_in_config: str
+    model_used_for_collection: Optional[str]
+    affected_collections: List[str]
+
+@dataclass
+class ReindexResult:
+    status_message: str
+    collections_processed: List[str]
+```
+
+## Error Handling
+
+**Standard Error Codes:**
+```python
+class ErrorCodes:
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
+    COLLECTION_ALREADY_EXISTS = "COLLECTION_ALREADY_EXISTS"
+    CONFIG_ERROR = "CONFIG_ERROR"
+    EMBEDDING_ERROR = "EMBEDDING_ERROR"
+    VECTORDB_ERROR = "VECTORDB_ERROR"
+    IO_ERROR = "IO_ERROR"
+```
+
+**Error Response Examples:**
+```json
+// Validation error
+{
+  "success": false,
+  "error_code": "VALIDATION_ERROR",
+  "message": "Invalid collection type specified",
+  "details": {
+    "field_errors": {
+      "type": "Must be 'fundamental' or 'project-specific'"
+    }
+  }
+}
+
+// Resource not found
+{
+  "success": false,
+  "error_code": "RESOURCE_NOT_FOUND",
+  "message": "Collection 'docs' not found",
+  "details": {
+    "available_collections": ["fundamental", "project"]
+  }
+}
+```
+
+## Query Refinement Implementation (FR-RQ-009)
+
+**Backend CLI Logic:**
+```python
+# ✅ Good: Structured feedback generation
+def generate_query_feedback(
+    query: str,
+    results: List[RetrievedChunk],
+    confidence_threshold: float = 0.7
+) -> Optional[QueryFeedback]:
+    """Generate refinement feedback based on query results."""
+    
+    if not results:
+        return QueryFeedback(
+            status="clarification_needed",
+            message_to_user="No relevant results found. Try different keywords.",
+            suggested_keywords=extract_keywords_from_query(query)
+        )
+    
+    avg_confidence = sum(chunk.rerank_score for chunk in results) / len(results)
+    
+    if avg_confidence < confidence_threshold:
+        return QueryFeedback(
+            status="low_confidence",
+            message_to_user="Results have low confidence. Consider being more specific.",
+            suggested_keywords=extract_related_terms(results)
+        )
+    
+    return QueryFeedback(status="success", message_to_user="")
+```
+
+**MCP Server Integration:**
+```python
+# ✅ Good: Pass-through feedback to Cursor AI
+@mcp.tool()
+async def query_knowledge_base(query: str, collections: List[str]) -> dict:
+    """Query with automatic refinement feedback."""
+    cli_result = await invoke_backend_cli([
+        "query", query, "--collections", ",".join(collections)
+    ])
+    
+    # Pass feedback directly to Cursor AI for processing
+    return {
+        "success": True,
+        "data": cli_result["data"],
+        "query_feedback": cli_result["data"].get("query_feedback")
+    }
+```
+
+## CLI Output Standards
+
+**Backend CLI Implementation:**
+```python
+# ✅ Good: Consistent JSON output
+import json
+import sys
+
+def output_success(data: dict):
+    """Output successful operation result."""
+    response = {"success": True, "data": data}
+    print(json.dumps(response, indent=2))
+    sys.exit(0)
+
+def output_error(error_code: str, message: str, details: dict = None):
+    """Output error response."""
+    response = {
+        "success": False,
+        "error_code": error_code,
+        "message": message,
+        "details": details or {}
+    }
+    print(json.dumps(response, indent=2))
+    sys.exit(1)
+
+# ❌ Avoid: Inconsistent output formats
+def bad_output(result):
+    if result:
+        print(f"Success: {result}")  # Not JSON
+    else:
+        print("Error occurred", file=sys.stderr)  # No structure
+```
+
+## Testing Contract Compliance
+
+**Validation Patterns:**
+```python
+# ✅ Good: Response validation
+from typing import TypedDict
+
+def validate_query_response(response: dict) -> bool:
+    """Validate query response against contract."""
+    required_fields = ["success"]
+    if response.get("success"):
+        return "data" in response and "retrieved_chunks" in response["data"]
+    else:
+        return all(field in response for field in ["error_code", "message"])
+```
+
+**Reference:** @reflow_prd.md sections 5.4, 5.7 for detailed requirements

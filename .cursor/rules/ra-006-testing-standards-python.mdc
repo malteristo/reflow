@@ -1,0 +1,456 @@
+---
+description: "Defines standards for writing unit and integration tests for the Research Agent's Python components using pytest, including structure, mocking, coverage, and PRD alignment. Applies to test files."
+globs: "tests/**/*.py", "*_test.py"
+alwaysApply: false
+---
+# Python Testing Standards
+
+## Core Requirements
+
+**✅ REQUIRED:**
+- **Framework**: `pytest` with fixtures and parametrization
+- **Structure**: AAA pattern (Arrange-Act-Assert)
+- **Coverage**: Unit tests for core logic, integration for CLI commands
+- **PRD Alignment**: Tests verify User Story acceptance criteria (ST-XXX)
+
+**❌ AVOID:**
+- Test dependencies and order coupling
+- Missing edge case and error handling tests
+- Unmocked external dependencies in unit tests
+
+## Test Organization
+
+**File Structure:**
+```
+tests/
+├── backend_cli/
+│   ├── test_chunking.py        # Unit tests for chunking logic
+│   ├── test_embedding.py       # Unit tests for embedding generation
+│   └── test_cli_commands.py    # Integration tests for CLI
+├── mcp_server/
+│   ├── test_tools.py          # Unit tests for MCP tools
+│   └── test_integration.py    # Integration tests for server
+├── conftest.py                # Shared fixtures
+└── utils/
+    └── test_helpers.py        # Test utilities
+```
+
+**Naming Conventions:**
+```python
+# ✅ Good: Clear test naming
+def test_chunk_markdown_document_with_headers():
+    """Test chunking markdown with header hierarchy."""
+
+def test_query_knowledge_base_empty_results():
+    """Test query behavior when no results found."""
+
+def test_ingest_file_invalid_collection_returns_error():
+    """Test file ingestion with invalid collection ID."""
+
+# ❌ Avoid: Unclear test names
+def test_chunking():
+def test_query():
+def test_error():
+```
+
+## Unit Test Patterns
+
+**Chunking Logic Tests:**
+```python
+# ✅ Good: Comprehensive unit test with mocking
+import pytest
+from unittest.mock import Mock, patch
+from src.research_agent_backend.chunking import HybridChunker
+from src.research_agent_backend.config import ChunkingConfig
+
+@pytest.fixture
+def chunking_config():
+    """Standard chunking configuration for tests."""
+    return ChunkingConfig(
+        chunk_size=512,
+        chunk_overlap=50,
+        markdown_headers_to_split_on=[["##", "H2"], ["###", "H3"]],
+        handle_code_blocks_as_atomic=True
+    )
+
+@pytest.fixture
+def sample_markdown():
+    """Sample markdown content for testing."""
+    return """
+## Introduction
+This is the introduction section.
+
+### Background
+Some background information.
+
+```python
+def example():
+    return "code"
+```
+
+## Implementation
+Implementation details here.
+"""
+
+def test_chunk_markdown_preserves_code_blocks(chunking_config, sample_markdown):
+    """Test that code blocks are treated as atomic units."""
+    # Arrange
+    chunker = HybridChunker(chunking_config)
+    
+    # Act
+    chunks = chunker.chunk_document(sample_markdown)
+    
+    # Assert
+    code_chunks = [c for c in chunks if c.content_type == "code_block"]
+    assert len(code_chunks) == 1
+    assert "def example():" in code_chunks[0].text
+    assert code_chunks[0].code_language == "python"
+
+def test_chunk_markdown_extracts_header_hierarchy(chunking_config, sample_markdown):
+    """Test that header hierarchy is properly extracted."""
+    # Arrange
+    chunker = HybridChunker(chunking_config)
+    
+    # Act
+    chunks = chunker.chunk_document(sample_markdown)
+    
+    # Assert
+    background_chunk = next(c for c in chunks if "background" in c.text.lower())
+    assert background_chunk.header_hierarchy == ["Introduction", "Background"]
+
+@pytest.mark.parametrize("chunk_size,expected_min_chunks", [
+    (100, 3),  # Small chunks -> more pieces
+    (1000, 1), # Large chunks -> fewer pieces
+])
+def test_chunk_size_affects_output(chunking_config, sample_markdown, chunk_size, expected_min_chunks):
+    """Test that chunk size parameter affects chunking output."""
+    # Arrange
+    chunking_config.chunk_size = chunk_size
+    chunker = HybridChunker(chunking_config)
+    
+    # Act
+    chunks = chunker.chunk_document(sample_markdown)
+    
+    # Assert
+    assert len(chunks) >= expected_min_chunks
+
+# ❌ Avoid: No mocking, unclear assertions
+def test_bad_chunking():
+    content = "some text"
+    result = chunk_function(content)  # No setup, unclear what's tested
+    assert result  # Vague assertion
+```
+
+**RAG Pipeline Tests:**
+```python
+# ✅ Good: Mocked dependencies for unit testing
+@pytest.fixture
+def mock_vector_db(mocker):
+    """Mock ChromaDB for testing."""
+    mock_client = mocker.Mock()
+    mock_collection = mocker.Mock()
+    mock_client.get_collection.return_value = mock_collection
+    return mock_client, mock_collection
+
+@pytest.fixture
+def mock_embeddings(mocker):
+    """Mock embedding model."""
+    mock_model = mocker.Mock()
+    mock_model.encode.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+    return mock_model
+
+def test_query_knowledge_base_with_reranking(mock_vector_db, mock_embeddings, mocker):
+    """Test complete query pipeline with re-ranking."""
+    # Arrange
+    mock_client, mock_collection = mock_vector_db
+    mock_collection.query.return_value = {
+        'documents': [["Result 1"], ["Result 2"]],
+        'metadatas': [[{"source": "doc1"}], [{"source": "doc2"}]],
+        'distances': [[0.1], [0.3]]
+    }
+    
+    mock_reranker = mocker.Mock()
+    mock_reranker.rank.return_value = [1, 0]  # Reranked order
+    
+    query_service = QueryService(mock_client, mock_embeddings, mock_reranker)
+    
+    # Act
+    results = query_service.query("test query", top_k=10, top_n=2)
+    
+    # Assert
+    assert len(results.retrieved_chunks) == 2
+    assert results.retrieved_chunks[0].text == "Result 2"  # Reranked first
+    assert results.query_feedback.status == "success"
+    
+    # Verify interactions
+    mock_collection.query.assert_called_once()
+    mock_reranker.rank.assert_called_once()
+
+def test_query_refinement_feedback_low_confidence(mock_vector_db, mock_embeddings):
+    """Test query refinement feedback for low confidence results."""
+    # Arrange
+    mock_client, mock_collection = mock_vector_db
+    mock_collection.query.return_value = {
+        'documents': [["Weak match"]],
+        'metadatas': [[{"source": "doc1"}]],
+        'distances': [[0.8]]  # Low confidence score
+    }
+    
+    query_service = QueryService(mock_client, mock_embeddings)
+    
+    # Act
+    results = query_service.query("vague query")
+    
+    # Assert
+    assert results.query_feedback.status == "low_confidence"
+    assert "more specific" in results.query_feedback.message_to_user.lower()
+    assert len(results.query_feedback.suggested_keywords) > 0
+```
+
+## Integration Test Patterns
+
+**CLI Command Tests:**
+```python
+# ✅ Good: Full CLI integration test
+import tempfile
+import json
+from pathlib import Path
+from typer.testing import CliRunner
+from src.research_agent_backend.cli.main import app
+
+@pytest.fixture
+def temp_config():
+    """Temporary configuration for testing."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        config = {
+            "vector_database": {"provider": "chromadb", "path": "./test_db"},
+            "embedding_model": {"provider": "local", "model_name_or_path": "test-model"}
+        }
+        json.dump(config, f)
+        yield Path(f.name)
+    Path(f.name).unlink()
+
+@pytest.fixture
+def temp_markdown_file():
+    """Temporary markdown file for ingestion testing."""
+    content = """
+# Test Document
+This is a test document.
+
+## Section 1
+Content for section 1.
+"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write(content)
+        yield Path(f.name)
+    Path(f.name).unlink()
+
+def test_ingest_file_command_success(temp_config, temp_markdown_file, mocker):
+    """Test successful file ingestion via CLI."""
+    # Arrange
+    runner = CliRunner()
+    mock_ingest = mocker.patch('src.research_agent_backend.ingest.ingest_file')
+    mock_ingest.return_value = {
+        "document_id": "doc123",
+        "chunks_created": 3,
+        "status_message": "Success"
+    }
+    
+    # Act
+    result = runner.invoke(app, [
+        "--config", str(temp_config),
+        "ingest", "file", str(temp_markdown_file),
+        "--collection-id", "test_collection"
+    ])
+    
+    # Assert
+    assert result.exit_code == 0
+    output_data = json.loads(result.stdout)
+    assert output_data["success"] is True
+    assert output_data["data"]["chunks_created"] == 3
+    
+    # Verify CLI called backend correctly
+    mock_ingest.assert_called_once_with(
+        file_path=temp_markdown_file,
+        collection_id="test_collection"
+    )
+
+def test_ingest_file_command_invalid_collection(temp_config, temp_markdown_file, mocker):
+    """Test file ingestion with invalid collection ID."""
+    # Arrange
+    runner = CliRunner()
+    mock_ingest = mocker.patch('src.research_agent_backend.ingest.ingest_file')
+    mock_ingest.side_effect = ValueError("Collection 'invalid' not found")
+    
+    # Act
+    result = runner.invoke(app, [
+        "--config", str(temp_config),
+        "ingest", "file", str(temp_markdown_file),
+        "--collection-id", "invalid"
+    ])
+    
+    # Assert
+    assert result.exit_code == 1
+    output_data = json.loads(result.stdout)
+    assert output_data["success"] is False
+    assert output_data["error_code"] == "RESOURCE_NOT_FOUND"
+    assert "Collection 'invalid' not found" in output_data["message"]
+
+# ❌ Avoid: No mocking, unclear what's being tested
+def test_bad_cli():
+    result = runner.invoke(app, ["ingest"])  # No setup
+    assert result.exit_code != 0  # Vague assertion
+```
+
+**MCP Server Tests:**
+```python
+# ✅ Good: MCP tool integration test
+import pytest
+from fastmcp.testing import MCPTestClient
+from src.mcp_server.server import mcp
+
+@pytest.fixture
+def mcp_client():
+    """MCP test client for integration testing."""
+    return MCPTestClient(mcp)
+
+@pytest.mark.asyncio
+async def test_query_knowledge_base_tool(mcp_client, mocker):
+    """Test MCP query tool integration."""
+    # Arrange
+    mock_cli_invoke = mocker.patch('src.mcp_server.cli_integration.invoke_backend_cli')
+    mock_cli_invoke.return_value = {
+        "success": True,
+        "data": {
+            "retrieved_chunks": [{"chunk_id": "1", "text": "Result"}],
+            "query_feedback": {"status": "success", "message_to_user": ""}
+        }
+    }
+    
+    # Act
+    response = await mcp_client.call_tool(
+        "query_knowledge_base",
+        query="test query",
+        collection_ids=["docs"]
+    )
+    
+    # Assert
+    assert response["success"] is True
+    assert len(response["data"]["retrieved_chunks"]) == 1
+    assert response["data"]["query_feedback"]["status"] == "success"
+    
+    # Verify CLI was called correctly
+    mock_cli_invoke.assert_called_once_with([
+        "query", "test query", "--collections", "docs"
+    ])
+```
+
+## Error Handling Tests
+
+**Exception Testing:**
+```python
+# ✅ Good: Comprehensive error handling tests
+def test_chunking_handles_empty_input():
+    """Test chunking behavior with empty input."""
+    chunker = HybridChunker(ChunkingConfig())
+    
+    chunks = chunker.chunk_document("")
+    
+    assert chunks == []
+
+def test_config_loading_missing_file():
+    """Test configuration loading with missing file."""
+    with pytest.raises(ConfigError, match="Config file .* not found"):
+        ResearchAgentConfig.load(Path("nonexistent.json"))
+
+def test_embedding_service_invalid_model():
+    """Test embedding service with invalid model."""
+    config = EmbeddingModelConfig(
+        provider="local",
+        model_name_or_path="nonexistent/model"
+    )
+    
+    with pytest.raises(EmbeddingError, match="Model .* not found"):
+        EmbeddingService(config)
+```
+
+## Test Configuration
+
+**conftest.py:**
+```python
+# ✅ Good: Shared test configuration
+import pytest
+import tempfile
+import shutil
+from pathlib import Path
+
+@pytest.fixture(scope="session")
+def test_data_dir():
+    """Test data directory with sample files."""
+    return Path(__file__).parent / "data"
+
+@pytest.fixture
+def temp_workspace():
+    """Temporary workspace for tests."""
+    temp_dir = Path(tempfile.mkdtemp())
+    yield temp_dir
+    shutil.rmtree(temp_dir)
+
+@pytest.fixture(autouse=True)
+def mock_datetime(mocker):
+    """Mock datetime for consistent test results."""
+    mock_now = mocker.patch('datetime.datetime.now')
+    mock_now.return_value = datetime(2024, 1, 1, 12, 0, 0)
+    return mock_now
+
+# Test markers
+pytest.mark.unit = pytest.mark.unit
+pytest.mark.integration = pytest.mark.integration
+pytest.mark.slow = pytest.mark.slow
+```
+
+## Running Tests
+
+**Standard Commands:**
+```bash
+# All tests
+pytest
+
+# Unit tests only
+pytest -m unit
+
+# Integration tests
+pytest -m integration
+
+# With coverage
+pytest --cov=src --cov-report=html
+
+# Specific test file
+pytest tests/backend_cli/test_chunking.py::test_chunk_markdown_with_headers
+```
+
+## PRD Alignment
+
+**Acceptance Criteria Testing:**
+```python
+# ✅ Good: Map tests to User Story acceptance criteria
+def test_markdown_chunking_preserves_context_st_kb_001():
+    """
+    Tests ST-KB-001 Acceptance Criteria:
+    - Markdown headers provide context for chunks
+    - Code blocks remain intact
+    - Header hierarchy is preserved in metadata
+    """
+    # Test implementation here...
+
+def test_query_refinement_provides_feedback_st_rq_002():
+    """
+    Tests ST-RQ-002 Acceptance Criteria:
+    - Low confidence results trigger refinement feedback
+    - Suggested keywords are provided
+    - User-friendly message explains the issue
+    """
+    # Test implementation here...
+```
+
+**Reference:** @reflow_prd.md User Stories (ST-XXX) for acceptance criteria validation

@@ -1,0 +1,153 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Research Agent Configuration Schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Configuration schema version"
+    },
+    "extends": {
+      "type": "string",
+      "description": "Path to base configuration file"
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "description": {"type": "string"}
+      },
+      "required": ["name", "version"]
+    },
+    "embedding_model": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"enum": ["local", "api"]},
+        "max_seq_length": {"type": "integer", "minimum": 128, "maximum": 8192},
+        "normalize_embeddings": {"type": "boolean"},
+        "batch_size": {"type": "integer", "minimum": 1, "maximum": 128}
+      },
+      "required": ["name", "type"]
+    },
+    "reranking_model": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"enum": ["local", "api"]},
+        "max_length": {"type": "integer", "minimum": 128, "maximum": 8192}
+      },
+      "required": ["name", "type"]
+    },
+    "chunking_strategy": {
+      "type": "object",
+      "properties": {
+        "type": {"enum": ["hybrid", "fixed", "semantic"]},
+        "chunk_size": {"type": "integer", "minimum": 100, "maximum": 2048},
+        "chunk_overlap": {"type": "integer", "minimum": 0, "maximum": 500},
+        "markdown_aware": {"type": "boolean"},
+        "preserve_headers": {"type": "boolean"},
+        "min_chunk_size": {"type": "integer", "minimum": 50},
+        "max_chunk_size": {"type": "integer", "minimum": 200}
+      },
+      "required": ["type", "chunk_size"]
+    },
+    "vector_store": {
+      "type": "object",
+      "properties": {
+        "type": {"enum": ["chromadb", "sqlite"]},
+        "persist_directory": {"type": "string"},
+        "collection_metadata": {"type": "object"}
+      },
+      "required": ["type", "persist_directory"]
+    },
+    "rag_pipeline": {
+      "type": "object",
+      "properties": {
+        "vector_search_top_k": {"type": "integer", "minimum": 1, "maximum": 200},
+        "rerank_top_k": {"type": "integer", "minimum": 1, "maximum": 50},
+        "min_relevance_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "enable_reranking": {"type": "boolean"},
+        "enable_metadata_filtering": {"type": "boolean"}
+      }
+    },
+    "collections": {
+      "type": "object",
+      "properties": {
+        "default_type": {"type": "string"},
+        "auto_create": {"type": "boolean"},
+        "metadata_fields": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {"enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]},
+        "format": {"type": "string"},
+        "file": {"type": "string"},
+        "max_file_size": {"type": "string"},
+        "backup_count": {"type": "integer", "minimum": 0, "maximum": 10}
+      }
+    },
+    "performance": {
+      "type": "object",
+      "properties": {
+        "enable_caching": {"type": "boolean"},
+        "cache_directory": {"type": "string"},
+        "embedding_cache_size": {"type": "integer", "minimum": 100},
+        "query_cache_size": {"type": "integer", "minimum": 10},
+        "cache_ttl_hours": {"type": "integer", "minimum": 1, "maximum": 168}
+      }
+    },
+    "api": {
+      "type": "object",
+      "properties": {
+        "timeout": {"type": "integer", "minimum": 5, "maximum": 300},
+        "retry_attempts": {"type": "integer", "minimum": 0, "maximum": 10},
+        "retry_delay": {"type": "number", "minimum": 0.1, "maximum": 60}
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "max_query_length": {"type": "integer", "minimum": 100, "maximum": 10000},
+        "max_document_size_mb": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "allowed_file_types": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^\\..+$"}
+        },
+        "enable_content_filtering": {"type": "boolean"}
+      }
+    },
+    "future_features": {
+      "type": "object",
+      "properties": {
+        "team_support": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "default_team_permissions": {
+              "type": "array",
+              "items": {"enum": ["read", "write", "admin"]}
+            },
+            "user_isolation": {"type": "boolean"}
+          }
+        },
+        "distributed_deployment": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "service_discovery": {"enum": ["consul", "etcd", "kubernetes"]},
+            "load_balancing": {"enum": ["round_robin", "least_connections", "weighted"]}
+          }
+        }
+      }
+    }
+  },
+  "required": ["version"]
+} 

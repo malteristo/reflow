@@ -1,0 +1,347 @@
+---
+description: "Guidelines for creating, parsing, and using 'researchagent.config.json' (schema adherence, defaults, dynamic updates like FR-KB-005) and '.env' for API keys for the Research Agent project."
+globs: "researchagent.config.json"
+alwaysApply: false
+---
+# Configuration Management Standards
+
+## Core Requirements
+
+**✅ REQUIRED:**
+- **Main Config**: `researchagent.config.json` in project root
+- **Secrets**: `.env` file for API keys (gitignored)
+- **Validation**: Schema validation with clear error messages
+- **Defaults**: Sensible fallbacks for optional settings
+
+**❌ AVOID:**
+- Hard-coded configurations
+- API keys in JSON config
+- Missing validation for critical settings
+
+## Configuration Schema (FR-CF-001, FR-CF-003, FR-CF-004)
+
+**researchagent.config.json Structure:**
+```json
+{
+  "vector_database": {
+    "provider": "chromadb",
+    "path": "./db/chroma_db"
+  },
+  "embedding_model": {
+    "provider": "local",
+    "model_name_or_path": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+    "api_key_env_var": "OPENAI_API_KEY",
+    "options": {
+      "device": "cpu"
+    }
+  },
+  "chunking_strategy": {
+    "strategy_name": "markdown_recursive",
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "markdown_headers_to_split_on": [
+      ["##", "H2"],
+      ["###", "H3"],
+      ["####", "H4"]
+    ],
+    "handle_code_blocks_as_atomic": true,
+    "handle_tables_as_atomic": true
+  },
+  "rag_parameters": {
+    "retrieval_top_k": 15,
+    "rerank_top_n": 5,
+    "reranker_model": {
+      "model_name_or_path": "cross-encoder/ms-marco-MiniLM-L6-v2"
+    }
+  }
+}
+```
+
+## Configuration Loading Implementation
+
+**Centralized Config Loader:**
+```python
+# ✅ Good: Comprehensive configuration management
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any
+from pathlib import Path
+import json
+import os
+from dotenv import load_dotenv
+
+@dataclass
+class VectorDBConfig:
+    provider: str = "chromadb"
+    path: str = "./db/chroma_db"
+
+@dataclass
+class EmbeddingModelConfig:
+    provider: str = "local"
+    model_name_or_path: str = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+    api_key_env_var: Optional[str] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class ChunkingConfig:
+    strategy_name: str = "markdown_recursive"
+    chunk_size: int = 512
+    chunk_overlap: int = 50
+    markdown_headers_to_split_on: List[List[str]] = field(default_factory=lambda: [
+        ["##", "H2"], ["###", "H3"], ["####", "H4"]
+    ])
+    handle_code_blocks_as_atomic: bool = True
+    handle_tables_as_atomic: bool = True
+
+@dataclass
+class RAGConfig:
+    retrieval_top_k: int = 15
+    rerank_top_n: int = 5
+    reranker_model: Dict[str, Any] = field(default_factory=lambda: {
+        "model_name_or_path": "cross-encoder/ms-marco-MiniLM-L6-v2"
+    })
+
+@dataclass
+class ResearchAgentConfig:
+    vector_database: VectorDBConfig = field(default_factory=VectorDBConfig)
+    embedding_model: EmbeddingModelConfig = field(default_factory=EmbeddingModelConfig)
+    chunking_strategy: ChunkingConfig = field(default_factory=ChunkingConfig)
+    rag_parameters: RAGConfig = field(default_factory=RAGConfig)
+
+    @classmethod
+    def load(cls, config_path: Path = Path("researchagent.config.json")) -> 'ResearchAgentConfig':
+        """Load configuration with validation and defaults."""
+        load_dotenv()  # Load .env file
+        
+        if not config_path.exists():
+            logger.warning(f"Config file {config_path} not found, using defaults")
+            return cls()
+        
+        try:
+            with open(config_path) as f:
+                config_data = json.load(f)
+            
+            return cls.from_dict(config_data)
+        except Exception as e:
+            raise ConfigError(f"Failed to load config: {e}")
+
+    @classmethod
+    def from_dict(cls, config_data: dict) -> 'ResearchAgentConfig':
+        """Create config from dictionary with validation."""
+        config = cls()
+        
+        # Load with validation
+        if "vector_database" in config_data:
+            config.vector_database = VectorDBConfig(**config_data["vector_database"])
+        
+        if "embedding_model" in config_data:
+            config.embedding_model = EmbeddingModelConfig(**config_data["embedding_model"])
+            
+        # Validate API key availability if required
+        if config.embedding_model.api_key_env_var:
+            api_key = os.getenv(config.embedding_model.api_key_env_var)
+            if not api_key:
+                raise ConfigError(f"API key {config.embedding_model.api_key_env_var} not found in environment")
+        
+        return config
+
+# ❌ Avoid: No validation, mixed responsibilities
+def bad_load_config():
+    return json.load(open("config.json"))  # No error handling, validation
+```
+
+## Environment Variables (.env)
+
+**.env File Structure:**
+```bash
+# API Keys (never commit to version control)
+OPENAI_API_KEY=sk-your-openai-key-here
+COHERE_API_KEY=your-cohere-key-here
+ANTHROPIC_API_KEY=your-anthropic-key-here
+
+# Optional: Override config paths
+RESEARCH_AGENT_CONFIG_PATH=./custom/config.json
+CHROMA_DB_PATH=./custom/db/chroma
+```
+
+**.env.example Template:**
+```bash
+# Copy to .env and fill in your actual API keys
+OPENAI_API_KEY=your-openai-key-here
+COHERE_API_KEY=your-cohere-key-here
+ANTHROPIC_API_KEY=your-anthropic-key-here
+```
+
+**Environment Loading:**
+```python
+# ✅ Good: Secure environment handling
+from dotenv import load_dotenv
+import os
+
+def load_api_key(env_var_name: str) -> Optional[str]:
+    """Safely load API key from environment."""
+    load_dotenv()
+    key = os.getenv(env_var_name)
+    if not key:
+        logger.warning(f"API key {env_var_name} not found in environment")
+    return key
+
+# ❌ Avoid: Hardcoded keys
+OPENAI_KEY = "sk-hardcoded-key"  # Never do this!
+```
+
+## Dynamic Update Detection (FR-KB-005)
+
+**Embedding Model Change Detection:**
+```python
+# ✅ Good: Change detection for re-indexing
+@dataclass
+class CollectionMetadata:
+    embedding_model_name: str
+    embedding_model_provider: str
+    last_indexed_at: str
+    model_options_hash: str  # Hash of model options
+
+class ConfigChangeDetector:
+    def __init__(self, config: ResearchAgentConfig):
+        self.config = config
+    
+    def check_reindex_needed(self, collection_metadata: CollectionMetadata) -> bool:
+        """Check if collection needs re-indexing due to config changes."""
+        current_model = self.config.embedding_model
+        
+        # Check if model changed
+        if collection_metadata.embedding_model_name != current_model.model_name_or_path:
+            return True
+            
+        if collection_metadata.embedding_model_provider != current_model.provider:
+            return True
+            
+        # Check if model options changed
+        current_options_hash = self._hash_options(current_model.options)
+        if collection_metadata.model_options_hash != current_options_hash:
+            return True
+            
+        return False
+    
+    def get_reindex_message(self, collection_name: str) -> str:
+        """Generate user-friendly re-index message."""
+        return (
+            f"Embedding model configuration has changed since collection '{collection_name}' "
+            f"was last indexed. Re-indexing is recommended for optimal performance."
+        )
+    
+    def _hash_options(self, options: dict) -> str:
+        """Create hash of model options for change detection."""
+        import hashlib
+        import json
+        return hashlib.md5(json.dumps(options, sort_keys=True).encode()).hexdigest()
+```
+
+## Configuration Validation
+
+**Schema Validation:**
+```python
+# ✅ Good: Comprehensive validation
+class ConfigValidator:
+    VALID_PROVIDERS = {"chromadb", "sqlite"}
+    VALID_EMBEDDING_PROVIDERS = {"local", "openai", "cohere"}
+    
+    @staticmethod
+    def validate_config(config: ResearchAgentConfig) -> List[str]:
+        """Validate configuration and return list of errors."""
+        errors = []
+        
+        # Validate vector database
+        if config.vector_database.provider not in ConfigValidator.VALID_PROVIDERS:
+            errors.append(f"Invalid vector DB provider: {config.vector_database.provider}")
+        
+        # Validate embedding model
+        if config.embedding_model.provider not in ConfigValidator.VALID_EMBEDDING_PROVIDERS:
+            errors.append(f"Invalid embedding provider: {config.embedding_model.provider}")
+        
+        if not config.embedding_model.model_name_or_path:
+            errors.append("Embedding model name/path cannot be empty")
+        
+        # Validate chunking parameters
+        if config.chunking_strategy.chunk_size <= 0:
+            errors.append("Chunk size must be positive")
+            
+        if config.chunking_strategy.chunk_overlap >= config.chunking_strategy.chunk_size:
+            errors.append("Chunk overlap must be less than chunk size")
+        
+        # Validate RAG parameters
+        if config.rag_parameters.retrieval_top_k <= 0:
+            errors.append("Retrieval top_k must be positive")
+            
+        if config.rag_parameters.rerank_top_n > config.rag_parameters.retrieval_top_k:
+            errors.append("Rerank top_n cannot exceed retrieval top_k")
+        
+        return errors
+```
+
+## Usage Patterns
+
+**Application Integration:**
+```python
+# ✅ Good: Clean configuration usage
+class ResearchAgentApp:
+    def __init__(self, config_path: Optional[Path] = None):
+        self.config = ResearchAgentConfig.load(config_path)
+        self._validate_config()
+        
+    def _validate_config(self):
+        """Validate configuration on startup."""
+        errors = ConfigValidator.validate_config(self.config)
+        if errors:
+            raise ConfigError(f"Configuration validation failed: {errors}")
+    
+    def get_embedding_model(self):
+        """Get configured embedding model."""
+        model_config = self.config.embedding_model
+        
+        if model_config.provider == "local":
+            from sentence_transformers import SentenceTransformer
+            return SentenceTransformer(model_config.model_name_or_path)
+        elif model_config.provider == "openai":
+            api_key = load_api_key(model_config.api_key_env_var)
+            return OpenAIEmbeddings(api_key=api_key)
+        
+    def get_chunking_config(self) -> ChunkingConfig:
+        """Get chunking configuration."""
+        return self.config.chunking_strategy
+
+# ❌ Avoid: Direct config access throughout codebase
+def bad_usage():
+    with open("config.json") as f:
+        config = json.load(f)
+    return config["embedding_model"]["model_name"]  # No validation, error-prone
+```
+
+## Security Best Practices
+
+**File Security:**
+```bash
+# ✅ Good: Proper .gitignore
+.env
+.env.*
+!.env.example
+researchagent.config.local.json
+
+# ❌ Avoid: Committing secrets
+# Missing .env in .gitignore leads to leaked API keys
+```
+
+**Configuration Immutability:**
+```python
+# ✅ Good: Immutable configuration after loading
+@dataclass(frozen=True)
+class ImmutableConfig:
+    """Configuration that cannot be modified after creation."""
+    embedding_model: EmbeddingModelConfig
+    # ... other fields
+
+# ❌ Avoid: Mutable global config
+global_config = {}  # Can be modified anywhere, leads to bugs
+```
+
+**Reference:** @reflow_prd.md sections 5.8, 7.5, 7.7 for detailed requirements

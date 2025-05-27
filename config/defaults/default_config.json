@@ -1,0 +1,82 @@
+{
+  "version": "1.0.0",
+  "embedding_model": {
+    "name": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+    "type": "local",
+    "max_seq_length": 512,
+    "normalize_embeddings": true,
+    "batch_size": 32
+  },
+  "reranking_model": {
+    "name": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "type": "local",
+    "max_length": 512
+  },
+  "chunking_strategy": {
+    "type": "hybrid",
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "markdown_aware": true,
+    "preserve_headers": true,
+    "min_chunk_size": 100,
+    "max_chunk_size": 1000
+  },
+  "vector_store": {
+    "type": "chromadb",
+    "persist_directory": "./data/chroma_db",
+    "collection_metadata": {
+      "hnsw:space": "cosine",
+      "hnsw:construction_ef": 100,
+      "hnsw:M": 16
+    }
+  },
+  "rag_pipeline": {
+    "vector_search_top_k": 50,
+    "rerank_top_k": 10,
+    "min_relevance_score": 0.5,
+    "enable_reranking": true,
+    "enable_metadata_filtering": true
+  },
+  "collections": {
+    "default_type": "general",
+    "auto_create": true,
+    "metadata_fields": ["user_id", "team_id", "access_permissions", "document_type", "source_path", "created_at", "updated_at"]
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": "./logs/research_agent.log",
+    "max_file_size": "10MB",
+    "backup_count": 5
+  },
+  "performance": {
+    "enable_caching": true,
+    "cache_directory": "./data/cache",
+    "embedding_cache_size": 10000,
+    "query_cache_size": 1000,
+    "cache_ttl_hours": 24
+  },
+  "api": {
+    "timeout": 30,
+    "retry_attempts": 3,
+    "retry_delay": 1
+  },
+  "security": {
+    "max_query_length": 2000,
+    "max_document_size_mb": 50,
+    "allowed_file_types": [".md", ".txt", ".pdf", ".docx"],
+    "enable_content_filtering": false
+  },
+  "future_features": {
+    "team_support": {
+      "enabled": false,
+      "default_team_permissions": ["read", "write"],
+      "user_isolation": true
+    },
+    "distributed_deployment": {
+      "enabled": false,
+      "service_discovery": "consul",
+      "load_balancing": "round_robin"
+    }
+  }
+} 

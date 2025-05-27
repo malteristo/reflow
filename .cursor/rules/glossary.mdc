@@ -1,0 +1,27 @@
+---
+description: Glossary of other Cursor rules
+globs: **/*
+alwaysApply: true
+---
+# Glossary of Research Flow Cursor Rules
+
+This file provides a quick reference to the purpose of each rule file located in the `.cursor/rules` directory.
+
+## General Development Rules
+
+- **[`architecture.mdc`](mdc:.cursor/rules/architecture.mdc)**: High-level architecture patterns and component design for the Research Agent CLI application.
+- **[`cursor_rules.mdc`](mdc:.cursor/rules/cursor_rules.mdc)**: Guidelines for creating and maintaining Cursor rules to ensure consistency and effectiveness.
+- **[`dev_workflow.mdc`](mdc:.cursor/rules/dev_workflow.mdc)**: Guide for using Task Master to manage task-driven development workflows.
+- **[`glossary.mdc`](mdc:.cursor/rules/glossary.mdc)**: This file; provides a glossary of other Cursor rules.
+- **[`self_improve.mdc`](mdc:.cursor/rules/self_improve.mdc)**: Guidelines for continuously improving Cursor rules based on emerging code patterns and best practices.
+- **[`taskmaster.mdc`](mdc:.cursor/rules/taskmaster.mdc)**: Comprehensive reference for Taskmaster MCP tools and CLI commands.
+
+## Research Agent Project Rules
+
+- **[`ra-001-project-overview-and-standards.mdc`](mdc:.cursor/rules/ra-001-project-overview-and-standards.mdc)**: Project overview and standards for the Research Agent project, including architecture, coding standards, and development practices.
+- **[`ra-002-python-backend-cli.mdc`](mdc:.cursor/rules/ra-002-python-backend-cli.mdc)**: Guidelines for developing the Research Agent's Python backend CLI, including Python standards, core libraries, KB management, RAG pipeline (chunking, embedding, re-ranking), configuration, and error handling.
+- **[`ra-003-mcp-server-python-fastmcp.mdc`](mdc:.cursor/rules/ra-003-mcp-server-python-fastmcp.mdc)**: Guidelines for implementing the Python MCP server using the FastMCP framework. Focuses on tool definition, backend CLI integration, data formatting for Cursor, and configuration.
+- **[`ra-004-api-interaction-backend-mcp.mdc`](mdc:.cursor/rules/ra-004-api-interaction-backend-mcp.mdc)**: Defines API contract, data structures (requests/responses/errors), and interaction logic for Research Agent backend CLI and MCP server communication, including structured feedback for query refinement.
+- **[`ra-005-configuration-management.mdc`](mdc:.cursor/rules/ra-005-configuration-management.mdc)**: Guidelines for creating, parsing, and using 'researchagent.config.json' (schema adherence, defaults, dynamic updates like FR-KB-005) and '.env' for API keys for the Research Agent project.
+- **[`ra-006-testing-standards-python.mdc`](mdc:.cursor/rules/ra-006-testing-standards-python.mdc)**: Defines standards for writing unit and integration tests for the Research Agent's Python components using pytest, including structure, mocking, coverage, and PRD alignment.
+- **[`ra-007-meta-design-researcher-rules-guidance.mdc`](mdc:.cursor/rules/ra-007-meta-design-researcher-rules-guidance.mdc)**: Meta-guidelines for Cursor AI on how to create the 'design_researcher_rules.mdc' file for the Research Agent product. Ensures PRD alignment for AI persona, context extraction, interaction flows, and knowledge management dialogues.
