@@ -3,263 +3,32 @@ description:
 globs: 
 alwaysApply: true
 ---
-# Test-Driven Development (TDD) with Task Master Integration
+# TDD with TaskMaster Integration
 
-## **Core TDD Workflow**
+> **Quick reference for TDD workflow with TaskMaster. For comprehensive testing standards, see [Testing Standards](mdc:docs/testing_standards.md) and [Testing Patterns](mdc:docs/testing_patterns_reference.md).**
 
-Follow the **Red-Green-Refactor** cycle for all feature development within Task Master tasks:
-
-### **1. Red Phase: Write Failing Tests**
-- **Before implementing any feature**, write tests that define expected behavior
-- Tests should fail initially (red) since functionality doesn't exist yet
-- Use descriptive test names that clearly explain what behavior is being tested
-
-```python
-# ✅ DO: Write failing test first
-def test_document_chunking_preserves_markdown_headers():
-    """Test that document chunker maintains header hierarchy."""
-    chunker = MarkdownChunker(chunk_size=512)
-    markdown_content = "# Main Title\n\n## Section\n\nContent here"
-    
-    chunks = chunker.chunk_document(markdown_content)
-    
-    assert len(chunks) > 0
-    assert chunks[0].metadata['header_hierarchy'] == ['Main Title', 'Section']
-
-# ❌ DON'T: Implement functionality before writing tests
-class MarkdownChunker:  # This would be written second, in Green phase
-    pass
-```
-
-### **2. Green Phase: Minimal Implementation**
-- Write the **simplest code possible** to make the test pass
-- Avoid over-engineering or adding unspecified functionality
-- Focus solely on making the red test turn green
-
-```python
-# ✅ DO: Minimal implementation to pass test
-class MarkdownChunker:
-    def __init__(self, chunk_size: int):
-        self.chunk_size = chunk_size
-    
-    def chunk_document(self, content: str) -> List[Chunk]:
-        # Minimal implementation just to pass the test
-        return [Chunk(content=content, metadata={'header_hierarchy': ['Main Title', 'Section']})]
-
-# ❌ DON'T: Over-engineer in green phase
-class MarkdownChunker:
-    def __init__(self, chunk_size: int):
-        self.chunk_size = chunk_size
-        self.advanced_ai_parser = AdvancedAIParser()  # Unnecessary complexity
-        self.machine_learning_optimizer = MLOptimizer()  # Not needed yet
-```
-
-### **3. Refactor Phase: Clean and Optimize**
-- Improve code quality while keeping all tests passing
-- Remove duplication, improve naming, and enhance readability
-- Run full test suite after each refactor to ensure no regressions
-
-```python
-# ✅ DO: Refactor for clarity and maintainability
-class MarkdownChunker:
-    """Processes markdown documents into semantic chunks."""
-    
-    def __init__(self, chunk_size: int):
-        self._chunk_size = chunk_size
-        self._header_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
-    
-    def chunk_document(self, content: str) -> List[Chunk]:
-        """Split document into chunks while preserving header context."""
-        headers = self._extract_header_hierarchy(content)
-        return self._create_chunks_with_metadata(content, headers)
-```
-
-## **Task Master Integration**
+## **TaskMaster TDD Workflow**
 
 ### **Subtask Implementation Process**
 When working on subtasks, follow this TDD-integrated workflow:
 
 1. **Start Subtask** (`set_task_status --id=X.Y --status=in-progress`)
 2. **Red Phase**: Write failing tests first
-3. **Update Subtask**: Document test creation (`update_subtask --id=X.Y --prompt="Created failing tests for..."`)
+3. **Update Subtask**: Document test creation (`update_subtask --id=X.Y --prompt="RED PHASE: Created failing tests for..."`)
 4. **Green Phase**: Implement minimal code to pass tests
-5. **Update Subtask**: Document implementation (`update_subtask --id=X.Y --prompt="Implemented minimal solution..."`)
+5. **Update Subtask**: Document implementation (`update_subtask --id=X.Y --prompt="GREEN PHASE: Implemented minimal solution..."`)
 6. **Refactor Phase**: Clean up code while maintaining green tests
-7. **Update Subtask**: Document refactoring (`update_subtask --id=X.Y --prompt="Refactored for improved..."`)
+7. **Update Subtask**: Document refactoring (`update_subtask --id=X.Y --prompt="REFACTOR PHASE: Enhanced implementation..."`)
 8. **Complete Subtask** (`set_task_status --id=X.Y --status=done`)
 
-### **Example Subtask TDD Workflow**
+### **Test Execution Commands**
 ```bash
-# Start working on embedding service subtask
-task-master set-status --id=4.2 --status=in-progress
-
-# Red: Write failing tests first
-task-master update-subtask --id=4.2 --prompt="RED PHASE: Created failing tests for embedding generation:
-- test_generate_embeddings_returns_correct_dimensions()
-- test_batch_embedding_handles_empty_input()
-- test_model_loading_validates_config()
-All tests failing as expected since EmbeddingService not implemented."
-
-# Green: Minimal implementation
-task-master update-subtask --id=4.2 --prompt="GREEN PHASE: Implemented minimal EmbeddingService:
-- Basic __init__ with model loading
-- generate_embeddings() method returning correct dimensions
-- All tests now passing with minimal implementation"
-
-# Refactor: Improve code quality
-task-master update-subtask --id=4.2 --prompt="REFACTOR PHASE: Enhanced EmbeddingService:
-- Added proper error handling and logging
-- Improved method naming and documentation
-- Optimized batch processing logic
-- All tests still passing after refactoring"
-
-# Complete
-task-master set-status --id=4.2 --status=done
+# TDD-specific test running
+python scripts/test_runner.py red     # Run failing tests (Red phase)
+python scripts/test_runner.py green   # Run minimal implementation tests  
+python scripts/test_runner.py unit    # Run all unit tests (Refactor phase)
+python scripts/test_runner.py coverage # Verify coverage requirements
 ```
-
-## **Testing Standards**
-
-### **Test Structure and Naming**
-```python
-# ✅ DO: Clear, descriptive test structure
-class TestEmbeddingService:
-    """Test suite for embedding generation service."""
-    
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.config = load_test_config()
-        self.service = EmbeddingService(self.config)
-    
-    def test_generate_embeddings_returns_correct_dimensions(self):
-        """Verify embeddings have expected dimensionality."""
-        text = "Sample document text"
-        
-        embeddings = self.service.generate_embeddings([text])
-        
-        assert len(embeddings) == 1
-        assert len(embeddings[0]) == self.config.embedding_dim
-    
-    def test_batch_processing_handles_empty_input_gracefully(self):
-        """Ensure empty input lists are handled without errors."""
-        result = self.service.generate_embeddings([])
-        
-        assert result == []
-
-# ❌ DON'T: Vague test names and unclear structure
-def test_stuff():  # Unclear what is being tested
-    pass
-
-def test_embedding():  # Too broad, unclear expectations
-    pass
-```
-
-### **Test Independence and Setup**
-```python
-# ✅ DO: Independent tests with proper setup/teardown
-class TestVectorStore:
-    def setup_method(self):
-        """Fresh test environment for each test."""
-        self.temp_db = create_temp_database()
-        self.store = VectorStore(self.temp_db)
-    
-    def teardown_method(self):
-        """Clean up after each test."""
-        self.store.close()
-        self.temp_db.cleanup()
-    
-    def test_document_insertion_increments_count(self):
-        """Verify document count increases after insertion."""
-        initial_count = self.store.count()
-        
-        self.store.add_document("test content", [0.1, 0.2, 0.3])
-        
-        assert self.store.count() == initial_count + 1
-
-# ❌ DON'T: Tests that depend on each other
-class TestVectorStore:
-    def test_add_document(self):
-        self.store.add_document("test")  # Affects global state
-    
-    def test_count_documents(self):
-        # This test depends on test_add_document running first
-        assert self.store.count() == 1  # Fragile assumption
-```
-
-## **Coverage and Quality Requirements**
-
-### **Minimum Test Coverage**
-- **New code**: 100% line coverage required
-- **Modified code**: Existing tests must pass + new tests for changes
-- **Critical paths**: Error handling, edge cases, and boundary conditions
-
-### **Test Categories to Include**
-```python
-# ✅ DO: Comprehensive test categories
-class TestDocumentProcessor:
-    # Happy path tests
-    def test_process_valid_markdown_document(self):
-        """Test normal document processing workflow."""
-        pass
-    
-    # Edge case tests
-    def test_process_empty_document(self):
-        """Test handling of empty input documents."""
-        pass
-    
-    def test_process_malformed_markdown(self):
-        """Test handling of invalid markdown syntax."""
-        pass
-    
-    # Error condition tests
-    def test_process_missing_file_raises_exception(self):
-        """Test appropriate error when file doesn't exist."""
-        with pytest.raises(FileNotFoundError):
-            processor.process_document("nonexistent.md")
-    
-    # Integration tests
-    def test_end_to_end_document_pipeline(self):
-        """Test complete document processing workflow."""
-        pass
-```
-
-## **TDD Best Practices**
-
-### **Small, Focused Commits**
-- Commit after each Red-Green-Refactor cycle
-- Use descriptive commit messages indicating TDD phase
-
-```bash
-# ✅ DO: Clear TDD cycle commits
-git commit -m "RED: Add failing tests for markdown chunking"
-git commit -m "GREEN: Implement basic markdown chunker to pass tests"
-git commit -m "REFACTOR: Extract header parsing logic for clarity"
-
-# ❌ DON'T: Large commits mixing phases
-git commit -m "Implement chunking feature"  # Unclear what was done
-```
-
-### **Continuous Test Execution**
-- Run tests after every code change
-- Use test watchers during development
-- Integrate with CI/CD for automated testing
-
-```python
-# ✅ DO: Frequent test execution
-# During development, run tests continuously:
-# pytest --watch src/
-# or use IDE test runners for immediate feedback
-```
-
-## **Integration with Research Agent Architecture**
-
-Follow TDD principles while adhering to project standards:
-
-- **Configuration**: Test configuration loading and validation ([config.py](mdc:src/research_agent_backend/utils/config.py))
-- **Vector Operations**: Test database operations ([vector_store.py](mdc:src/research_agent_backend/core/vector_store.py))
-- **Error Handling**: Test all custom exceptions ([exceptions/](mdc:src/research_agent_backend/exceptions))
-- **CLI Commands**: Test command-line interfaces ([cli/](mdc:src/research_agent_backend/cli))
-
-Reference project testing standards in [ra-006-testing-standards-python.mdc](mdc:.cursor/rules/ra-006-testing-standards-python.mdc) for additional Python-specific requirements.
 
 ## **Task Completion Criteria**
 
@@ -267,8 +36,14 @@ A task/subtask is only complete when:
 1. ✅ All tests written (Red phase)
 2. ✅ All tests passing (Green phase)  
 3. ✅ Code refactored and optimized (Refactor phase)
-4. ✅ Test coverage meets requirements
+4. ✅ Test coverage meets requirements (95%+)
 5. ✅ Integration tests verify end-to-end functionality
-6. ✅ Documentation updated to reflect changes
+6. ✅ TaskMaster subtask updated with implementation notes
+
+## **AI Development Integration**
+
+- **Follow TDD principles** from [Testing Standards](mdc:docs/testing_standards.md)
+- **Use testing patterns** from [Testing Patterns Reference](mdc:docs/testing_patterns_reference.md)
+- **Test project-specific components**: Configuration ([config.py](mdc:src/research_agent_backend/utils/config.py)), Vector Operations ([vector_store.py](mdc:src/research_agent_backend/core/vector_store.py)), CLI Commands ([cli/](mdc:src/research_agent_backend/cli))
 
 **Remember**: If you're not writing tests first, you're not following TDD. Every line of production code should be driven by a failing test.
