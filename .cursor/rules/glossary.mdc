@@ -1,7 +1,7 @@
 ---
-description: Glossary of other Cursor rules
-globs: **/*
-alwaysApply: true
+description: This file provides a quick reference to the purpose of each rule file located in the `.cursor/rules` directory.
+globs: 
+alwaysApply: false
 ---
 # Glossary of Research Flow Cursor Rules
 
@@ -15,6 +15,7 @@ This file provides a quick reference to the purpose of each rule file located in
 - **[`glossary.mdc`](mdc:.cursor/rules/glossary.mdc)**: This file; provides a glossary of other Cursor rules.
 - **[`self_improve.mdc`](mdc:.cursor/rules/self_improve.mdc)**: Guidelines for continuously improving Cursor rules based on emerging code patterns and best practices.
 - **[`taskmaster.mdc`](mdc:.cursor/rules/taskmaster.mdc)**: Comprehensive reference for Taskmaster MCP tools and CLI commands.
+- **[`test_driven_development.mdc`](mdc:.cursor/rules/test_driven_development.mdc)**: Guidelines for Test-Driven Development (TDD) with Task Master integration, including Red-Green-Refactor cycle and testing standards.
 
 ## Research Agent Project Rules
 
