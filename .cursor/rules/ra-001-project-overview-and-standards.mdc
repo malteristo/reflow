@@ -93,6 +93,8 @@ def search_knowledge(query: str, collections: str = None) -> dict:
 - Include error handling and logging
 - Write modular, testable components
 - Document any PRD deviations
+- always identify the current development environment before installing dependencies (venv)
+- always use `uv pip install` instead of `pip install` when installing dependencies (uv).
 
 **Code organization:**
 ```
