@@ -226,6 +226,11 @@ class ConfigManager:
             self.logger.error(f"Configuration loading failed: {e}")
             self._loaded = False
             raise
+        except ConfigurationFileNotFoundError as e:
+            # Re-raise file not found errors as-is
+            self.logger.error(f"Configuration file not found: {e}")
+            self._loaded = False
+            raise
         except PermissionError as e:
             error_msg = f"Permission denied accessing configuration files: {e}"
             self.logger.error(error_msg)
@@ -749,7 +754,6 @@ class ConfigManager:
             elif target_type == 'float':
                 return float(value)
             elif target_type == 'json':
-                import json
                 return json.loads(value)
             else:  # string
                 return value

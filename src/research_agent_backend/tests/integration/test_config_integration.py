@@ -10,8 +10,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from research_agent_backend.utils.config import ConfigManager
-from research_agent_backend.exceptions.config_exceptions import (
+from ...utils.config import ConfigManager
+from ...exceptions.config_exceptions import (
     ConfigurationError,
     ConfigurationFileNotFoundError,
     ConfigurationValidationError,

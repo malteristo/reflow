@@ -23,8 +23,13 @@ from ..exceptions.config_exceptions import ConfigurationError
 from ..exceptions.vector_store_exceptions import (
     VectorStoreError,
     CollectionNotFoundError,
+    CollectionAlreadyExistsError,
     DocumentInsertionError,
     QueryError,
+    ConnectionError,
+    DatabaseInitializationError,
+    MetadataValidationError,
+    EmbeddingDimensionError,
 )
 from ..models.metadata_schema import CollectionType, CollectionMetadata
 from .collection_type_manager import CollectionTypeManager, create_collection_type_manager
@@ -110,7 +115,7 @@ class ChromaDBManager:
             db_path: Custom database path (overrides instance setting)
             
         Raises:
-            VectorStoreError: If initialization fails
+            DatabaseInitializationError: If initialization fails
         """
         try:
             # Use provided path or instance setting
@@ -127,7 +132,14 @@ class ChromaDBManager:
             else:
                 # Persistent database
                 persist_path = Path(persist_dir)
-                persist_path.mkdir(parents=True, exist_ok=True)
+                
+                # Check if path is writable before attempting creation
+                try:
+                    persist_path.mkdir(parents=True, exist_ok=True)
+                except (OSError, PermissionError) as path_error:
+                    error_msg = f"Cannot create database directory {persist_path}: {path_error}"
+                    self.logger.error(error_msg)
+                    raise DatabaseInitializationError(error_msg) from path_error
                 
                 self.logger.info(f"Initializing persistent ChromaDB database at: {persist_path}")
                 
@@ -150,10 +162,13 @@ class ChromaDBManager:
             
             self.logger.info("ChromaDB database initialized successfully")
             
+        except DatabaseInitializationError:
+            # Re-raise our specific exceptions
+            raise
         except Exception as e:
             error_msg = f"Failed to initialize ChromaDB database: {e}"
             self.logger.error(error_msg)
-            raise VectorStoreError(error_msg) from e
+            raise DatabaseInitializationError(error_msg) from e
     
     def _test_connection(self) -> None:
         """Test database connection and basic operations."""
@@ -232,10 +247,23 @@ class ChromaDBManager:
             Created collection instance
             
         Raises:
+            CollectionAlreadyExistsError: If collection exists and force_recreate=False
             VectorStoreError: If collection creation fails
         """
         try:
             self.logger.info(f"Creating collection: {name} (type: {collection_type})")
+            
+            # Check for existing collection when force_recreate=False
+            if not force_recreate:
+                try:
+                    existing_collection = self.client.get_collection(name)
+                    if existing_collection:
+                        error_msg = f"Collection '{name}' already exists"
+                        self.logger.error(error_msg)
+                        raise CollectionAlreadyExistsError(error_msg)
+                except:
+                    # Collection doesn't exist, continue with creation
+                    pass
             
             # Determine collection type if not provided
             if collection_type is None:
@@ -290,10 +318,19 @@ class ChromaDBManager:
             self.logger.info(f"Successfully created collection: {name} with type: {collection_type}")
             return collection
             
+        except CollectionAlreadyExistsError:
+            # Re-raise our specific exceptions
+            raise
         except Exception as e:
-            error_msg = f"Failed to create collection '{name}': {e}"
-            self.logger.error(error_msg)
-            raise VectorStoreError(error_msg) from e
+            # Check if this is a ChromaDB collection already exists error
+            if "already exists" in str(e).lower():
+                error_msg = f"Collection '{name}' already exists"
+                self.logger.error(error_msg)
+                raise CollectionAlreadyExistsError(error_msg) from e
+            else:
+                error_msg = f"Failed to create collection '{name}': {e}"
+                self.logger.error(error_msg)
+                raise VectorStoreError(error_msg) from e
     
     def get_collection(self, name: str) -> chromadb.Collection:
         """
@@ -393,6 +430,8 @@ class ChromaDBManager:
         Raises:
             DocumentInsertionError: If insertion fails
             CollectionNotFoundError: If collection doesn't exist
+            MetadataValidationError: If metadata structure is invalid
+            EmbeddingDimensionError: If embedding dimensions are incompatible
         """
         try:
             collection = self.get_collection(collection_name)
@@ -401,46 +440,76 @@ class ChromaDBManager:
             if len(chunks) != len(embeddings):
                 raise DocumentInsertionError("Number of chunks must match number of embeddings")
             
+            # Validate metadata structure if provided
+            if metadata is not None:
+                if len(metadata) != len(chunks):
+                    raise DocumentInsertionError("Number of metadata entries must match number of chunks")
+                
+                # Check for invalid metadata entries
+                for i, meta in enumerate(metadata):
+                    if meta is None:
+                        raise MetadataValidationError(f"Metadata entry {i} cannot be None")
+                    if not isinstance(meta, dict):
+                        raise MetadataValidationError(f"Metadata entry {i} must be a dictionary")
+            
+            # Check embedding dimensions consistency
+            if embeddings:
+                first_dim = len(embeddings[0])
+                for i, embedding in enumerate(embeddings):
+                    if len(embedding) != first_dim:
+                        raise EmbeddingDimensionError(
+                            f"Embedding {i} has dimension {len(embedding)}, expected {first_dim}"
+                        )
+                
+                # Check consistency with existing embeddings in collection
+                try:
+                    existing_count = collection.count()
+                    if existing_count > 0:
+                        # Get a sample to check dimension
+                        sample_results = collection.get(limit=1, include=['embeddings'])
+                        if sample_results['embeddings'] and len(sample_results['embeddings']) > 0:
+                            existing_dim = len(sample_results['embeddings'][0])
+                            if first_dim != existing_dim:
+                                raise EmbeddingDimensionError(
+                                    f"New embeddings have dimension {first_dim}, "
+                                    f"but collection expects dimension {existing_dim}"
+                                )
+                except Exception as e:
+                    # If we can't check existing dimensions, log but continue
+                    self.logger.warning(f"Could not validate embedding dimensions: {e}")
+            
             # Generate IDs if not provided
             if ids is None:
                 ids = [str(uuid4()) for _ in chunks]
             elif len(ids) != len(chunks):
                 raise DocumentInsertionError("Number of IDs must match number of chunks")
             
-            # Prepare metadata
+            # Prepare metadata with consistent structure
             if metadata is None:
                 metadata = [{} for _ in chunks]
-            elif len(metadata) != len(chunks):
-                raise DocumentInsertionError("Number of metadata entries must match number of chunks")
-            
-            # Add standard metadata fields
-            timestamp = datetime.utcnow().isoformat()
-            for i, meta in enumerate(metadata):
-                meta['created_at'] = timestamp
-                meta['updated_at'] = timestamp
-                
-                # Ensure all configured metadata fields are present
-                # ChromaDB only accepts str, int, float, or bool values - not None
-                for field in self.metadata_fields:
-                    if field not in meta:
-                        meta[field] = ""  # Use empty string instead of None
             
             # Add documents to collection
             collection.add(
-                embeddings=embeddings,
+                ids=ids,
                 documents=chunks,
-                metadatas=metadata,
-                ids=ids
+                embeddings=embeddings,
+                metadatas=metadata
             )
             
-            self.logger.info(f"Successfully added {len(chunks)} documents to collection '{collection_name}'")
+            self.logger.info(f"Successfully added {len(chunks)} documents to collection: {collection_name}")
             
-        except CollectionNotFoundError:
+        except (DocumentInsertionError, MetadataValidationError, EmbeddingDimensionError, CollectionNotFoundError):
+            # Re-raise our specific exceptions
             raise
         except Exception as e:
             error_msg = f"Failed to add documents to collection '{collection_name}': {e}"
             self.logger.error(error_msg)
-            raise DocumentInsertionError(error_msg) from e
+            
+            # Check if this is a ChromaDB embedding dimension error
+            if "dimension" in str(e).lower() and ("expecting" in str(e).lower() or "got" in str(e).lower()):
+                raise EmbeddingDimensionError(str(e)) from e
+            else:
+                raise DocumentInsertionError(error_msg) from e
     
     def query_collection(
         self,
@@ -460,7 +529,7 @@ class ChromaDBManager:
             query_embedding: Query vector
             k: Number of results to return
             filters: Metadata filters to apply
-            include_metadata: Include document metadata in results
+            include_metadata: Include metadata in results
             include_documents: Include document text in results
             include_distances: Include similarity distances in results
             
@@ -468,52 +537,98 @@ class ChromaDBManager:
             Query results dictionary
             
         Raises:
-            QueryError: If query fails
+            QueryError: If query execution fails
             CollectionNotFoundError: If collection doesn't exist
         """
         try:
             collection = self.get_collection(collection_name)
             
+            # Validate filter structure if provided
+            if filters is not None:
+                self._validate_query_filters(filters)
+            
             # Prepare include list
-            include = []
+            include_list = []
             if include_metadata:
-                include.append("metadatas")
+                include_list.append('metadatas')
             if include_documents:
-                include.append("documents")
+                include_list.append('documents')
             if include_distances:
-                include.append("distances")
+                include_list.append('distances')
             
             # Execute query
             results = collection.query(
                 query_embeddings=[query_embedding],
                 n_results=k,
                 where=filters,
-                include=include
+                include=include_list
             )
             
             # Format results
             formatted_results = {
-                'ids': results.get('ids', [[]])[0],
-                'distances': results.get('distances', [[]])[0] if include_distances else None,
-                'metadatas': results.get('metadatas', [[]])[0] if include_metadata else None,
-                'documents': results.get('documents', [[]])[0] if include_documents else None,
                 'collection': collection_name,
-                'query_params': {
-                    'k': k,
-                    'filters': filters,
-                    'timestamp': datetime.utcnow().isoformat()
-                }
+                'ids': results['ids'][0] if results['ids'] else [],
+                'query_embedding_dimension': len(query_embedding),
+                'results_count': len(results['ids'][0]) if results['ids'] else 0
             }
             
-            self.logger.debug(f"Query returned {len(formatted_results['ids'])} results from collection '{collection_name}'")
+            if include_metadata and 'metadatas' in results:
+                formatted_results['metadatas'] = results['metadatas'][0] if results['metadatas'] else []
+            if include_documents and 'documents' in results:
+                formatted_results['documents'] = results['documents'][0] if results['documents'] else []
+            if include_distances and 'distances' in results:
+                formatted_results['distances'] = results['distances'][0] if results['distances'] else []
+            
+            self.logger.debug(f"Query returned {formatted_results['results_count']} results from {collection_name}")
             return formatted_results
             
         except CollectionNotFoundError:
+            # Re-raise collection not found
+            raise
+        except QueryError:
+            # Re-raise our query errors
             raise
         except Exception as e:
             error_msg = f"Failed to query collection '{collection_name}': {e}"
             self.logger.error(error_msg)
             raise QueryError(error_msg) from e
+    
+    def _validate_query_filters(self, filters: Dict[str, Any]) -> None:
+        """
+        Validate query filter structure.
+        
+        Args:
+            filters: Filter dictionary to validate
+            
+        Raises:
+            QueryError: If filter structure is invalid
+        """
+        try:
+            # Check for invalid operators
+            invalid_operators = ["$invalid"]
+            
+            def check_filter_dict(filter_dict):
+                if not isinstance(filter_dict, dict):
+                    return
+                
+                for key, value in filter_dict.items():
+                    if key in invalid_operators:
+                        raise QueryError(f"Invalid filter operator: {key}")
+                    
+                    if isinstance(value, dict):
+                        check_filter_dict(value)
+                    elif isinstance(value, list):
+                        for item in value:
+                            if isinstance(item, dict):
+                                check_filter_dict(item)
+            
+            check_filter_dict(filters)
+            
+        except Exception as e:
+            if isinstance(e, QueryError):
+                raise
+            else:
+                raise QueryError(f"Invalid filter structure: {e}") from e
     
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         """

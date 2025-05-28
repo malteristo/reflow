@@ -47,6 +47,7 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.5.0",
     "pre-commit>=3.3.0",
+    "watchdog>=3.0.0",
 ]
 test = [
     "pytest>=7.4.0",
@@ -115,12 +116,19 @@ testpaths = ["src/research_agent_backend/tests", "src/mcp_server/tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers --cov=src --cov-report=term-missing"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "e2e: End-to-end tests",
     "slow: Slow running tests",
+    "tdd_red: TDD Red phase tests",
+    "tdd_green: TDD Green phase tests",
+    "performance: Performance tests",
+    "requires_gpu: Tests requiring GPU",
+    "requires_network: Tests requiring network",
 ]
 
 [tool.coverage.run]
@@ -144,4 +152,10 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
-] 
+]
+fail_under = 95
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
+show_contexts = true 
