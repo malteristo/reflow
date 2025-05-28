@@ -26,6 +26,8 @@ from ..exceptions.vector_store_exceptions import (
     DocumentInsertionError,
     QueryError,
 )
+from ..models.metadata_schema import CollectionType, CollectionMetadata
+from .collection_type_manager import CollectionTypeManager, create_collection_type_manager
 
 
 class ChromaDBManager:
@@ -34,19 +36,21 @@ class ChromaDBManager:
     
     Provides high-level interface for ChromaDB operations including:
     - Database initialization and connection management
-    - Collection creation and management
+    - Collection creation and management with type-specific configurations
     - Document insertion with metadata
     - Vector similarity search with filtering
     - Collection lifecycle management
     
     Implements FR-ST-002: Vector database integration with metadata support.
+    Implements FR-KB-005: Collection type management and data organization.
     """
     
     def __init__(
         self,
         config_manager: Optional[ConfigManager] = None,
         persist_directory: Optional[str] = None,
-        in_memory: bool = False
+        in_memory: bool = False,
+        collection_type_manager: Optional[CollectionTypeManager] = None
     ) -> None:
         """
         Initialize ChromaDB Manager.
@@ -55,8 +59,10 @@ class ChromaDBManager:
             config_manager: Configuration manager instance (creates new if None)
             persist_directory: Custom persist directory (overrides config)
             in_memory: Use in-memory database (for testing)
+            collection_type_manager: Collection type manager (creates new if None)
         """
         self.config_manager = config_manager or ConfigManager()
+        self.collection_type_manager = collection_type_manager or create_collection_type_manager(self.config_manager)
         self.logger = logging.getLogger(__name__)
         
         # Get vector store configuration
@@ -203,18 +209,24 @@ class ChromaDBManager:
     def create_collection(
         self,
         name: str,
+        collection_type: Union[CollectionType, str, None] = None,
         metadata: Optional[Dict[str, Any]] = None,
         embedding_function: Optional[Any] = None,
-        force_recreate: bool = False
+        force_recreate: bool = False,
+        owner_id: str = "",
+        team_id: Optional[str] = None
     ) -> chromadb.Collection:
         """
-        Create a new collection.
+        Create a new collection with type-specific configuration.
         
         Args:
             name: Collection name
+            collection_type: Collection type (determines configuration)
             metadata: Additional collection metadata
             embedding_function: Custom embedding function (uses default if None)
             force_recreate: Delete existing collection if it exists
+            owner_id: Owner user ID for permissions
+            team_id: Team ID for team-based collections
             
         Returns:
             Created collection instance
@@ -223,15 +235,39 @@ class ChromaDBManager:
             VectorStoreError: If collection creation fails
         """
         try:
-            self.logger.info(f"Creating collection: {name}")
+            self.logger.info(f"Creating collection: {name} (type: {collection_type})")
             
-            # Prepare metadata
-            collection_metadata = self.collection_metadata.copy()
+            # Determine collection type if not provided
+            if collection_type is None:
+                collection_type = CollectionType.GENERAL
+                self.logger.info(f"Using default collection type: {collection_type}")
+            elif isinstance(collection_type, str):
+                try:
+                    collection_type = CollectionType(collection_type)
+                except ValueError:
+                    raise VectorStoreError(f"Unknown collection type: {collection_type}")
+            
+            # Get type-specific configuration
+            type_config = self.collection_type_manager.get_collection_config(collection_type)
+            
+            # Prepare ChromaDB metadata using type configuration
+            collection_metadata = type_config.to_chromadb_metadata()
+            
+            # Add base configuration metadata
+            base_metadata = self.collection_metadata.copy()
+            collection_metadata.update(base_metadata)
+            
+            # Add additional metadata if provided
             if metadata:
                 collection_metadata.update(metadata)
             
-            # Add creation timestamp
-            collection_metadata['created_at'] = datetime.utcnow().isoformat()
+            # Add creation and ownership metadata
+            collection_metadata.update({
+                'created_at': datetime.utcnow().isoformat(),
+                'owner_id': owner_id,
+                'team_id': team_id or "",
+                'collection_name': name
+            })
             
             # Handle existing collection
             if force_recreate:
@@ -241,7 +277,7 @@ class ChromaDBManager:
                 except CollectionNotFoundError:
                     pass  # Collection didn't exist, which is fine
             
-            # Create collection
+            # Create collection with type-specific configuration
             collection = self.client.create_collection(
                 name=name,
                 metadata=collection_metadata,
@@ -251,7 +287,7 @@ class ChromaDBManager:
             # Cache collection
             self._collections_cache[name] = collection
             
-            self.logger.info(f"Successfully created collection: {name}")
+            self.logger.info(f"Successfully created collection: {name} with type: {collection_type}")
             return collection
             
         except Exception as e:
@@ -534,6 +570,202 @@ class ChromaDBManager:
             
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")
+    
+    def validate_collection_type(
+        self,
+        collection_name: str,
+        expected_type: Union[CollectionType, str]
+    ) -> Tuple[bool, List[str]]:
+        """
+        Validate that a collection matches the expected type configuration.
+        
+        Args:
+            collection_name: Name of collection to validate
+            expected_type: Expected collection type
+            
+        Returns:
+            Tuple of (is_valid, list_of_validation_errors)
+        """
+        try:
+            collection = self.get_collection(collection_name)
+            collection_metadata = collection.metadata or {}
+            
+            # Extract collection type from metadata
+            actual_type_str = collection_metadata.get('collection_type')
+            if not actual_type_str:
+                return False, ["Collection metadata missing collection_type"]
+            
+            try:
+                actual_type = CollectionType(actual_type_str)
+            except ValueError:
+                return False, [f"Invalid collection type in metadata: {actual_type_str}"]
+            
+            # Convert expected type to enum if needed
+            if isinstance(expected_type, str):
+                try:
+                    expected_type = CollectionType(expected_type)
+                except ValueError:
+                    return False, [f"Invalid expected collection type: {expected_type}"]
+            
+            # Check if types match
+            if actual_type != expected_type:
+                return False, [f"Collection type mismatch: expected {expected_type}, got {actual_type}"]
+            
+            # Get type configuration and validate against it
+            type_config = self.collection_type_manager.get_collection_config(expected_type)
+            
+            # Validate HNSW parameters
+            errors = []
+            hnsw_space = collection_metadata.get('hnsw:space')
+            if hnsw_space != type_config.distance_metric:
+                errors.append(f"Distance metric mismatch: expected {type_config.distance_metric}, got {hnsw_space}")
+            
+            hnsw_ef = collection_metadata.get('hnsw:construction_ef')
+            if hnsw_ef != type_config.hnsw_construction_ef:
+                errors.append(f"HNSW construction_ef mismatch: expected {type_config.hnsw_construction_ef}, got {hnsw_ef}")
+            
+            hnsw_m = collection_metadata.get('hnsw:M')
+            if hnsw_m != type_config.hnsw_m:
+                errors.append(f"HNSW M parameter mismatch: expected {type_config.hnsw_m}, got {hnsw_m}")
+            
+            return len(errors) == 0, errors
+            
+        except CollectionNotFoundError:
+            return False, [f"Collection '{collection_name}' not found"]
+        except Exception as e:
+            return False, [f"Validation error: {e}"]
+    
+    def determine_collection_for_document(
+        self,
+        document_metadata: Dict[str, Any],
+        chunk_metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Determine the appropriate collection for a document based on its metadata.
+        
+        Args:
+            document_metadata: Document-level metadata
+            chunk_metadata: Optional chunk-level metadata
+            
+        Returns:
+            Collection name to use for this document
+        """
+        # Determine collection type
+        collection_type = self.collection_type_manager.determine_collection_type(
+            document_metadata=document_metadata,
+            chunk_metadata=chunk_metadata
+        )
+        
+        # Extract project information for naming
+        project_name = None
+        if collection_type == CollectionType.PROJECT_SPECIFIC:
+            project_name = document_metadata.get('project_name') or document_metadata.get('team_id')
+        
+        # Generate collection name
+        collection_name = self.collection_type_manager.create_collection_name(
+            collection_type=collection_type,
+            project_name=project_name
+        )
+        
+        # Check if collection exists, create if it doesn't
+        try:
+            self.get_collection(collection_name)
+            self.logger.debug(f"Using existing collection: {collection_name}")
+        except CollectionNotFoundError:
+            # Create the collection
+            owner_id = document_metadata.get('user_id', '')
+            team_id = document_metadata.get('team_id')
+            
+            self.logger.info(f"Auto-creating collection: {collection_name} (type: {collection_type})")
+            self.create_collection(
+                name=collection_name,
+                collection_type=collection_type,
+                owner_id=owner_id,
+                team_id=team_id
+            )
+        
+        return collection_name
+    
+    def get_collections_by_type(self, collection_type: Union[CollectionType, str]) -> List[Dict[str, Any]]:
+        """
+        Get all collections of a specific type.
+        
+        Args:
+            collection_type: Collection type to filter by
+            
+        Returns:
+            List of collection information for collections of the specified type
+        """
+        if isinstance(collection_type, str):
+            try:
+                collection_type = CollectionType(collection_type)
+            except ValueError:
+                raise ValueError(f"Unknown collection type: {collection_type}")
+        
+        all_collections = self.list_collections()
+        type_collections = []
+        
+        for collection_info in all_collections:
+            metadata = collection_info.get('metadata', {})
+            coll_type_str = metadata.get('collection_type')
+            
+            if coll_type_str:
+                try:
+                    coll_type = CollectionType(coll_type_str)
+                    if coll_type == collection_type:
+                        type_collections.append(collection_info)
+                except ValueError:
+                    continue  # Skip collections with invalid type metadata
+        
+        return type_collections
+    
+    def get_collection_type_summary(self) -> Dict[str, Any]:
+        """
+        Get summary of collections organized by type.
+        
+        Returns:
+            Summary of collections grouped by type with statistics
+        """
+        all_collections = self.list_collections()
+        type_summary = {
+            'total_collections': len(all_collections),
+            'by_type': {},
+            'untyped': []
+        }
+        
+        # Group collections by type
+        for collection_info in all_collections:
+            metadata = collection_info.get('metadata', {})
+            coll_type_str = metadata.get('collection_type')
+            
+            if coll_type_str:
+                try:
+                    coll_type = CollectionType(coll_type_str)
+                    type_key = str(coll_type)
+                    
+                    if type_key not in type_summary['by_type']:
+                        type_summary['by_type'][type_key] = {
+                            'count': 0,
+                            'total_documents': 0,
+                            'collections': []
+                        }
+                    
+                    type_summary['by_type'][type_key]['count'] += 1
+                    type_summary['by_type'][type_key]['total_documents'] += collection_info.get('count', 0)
+                    type_summary['by_type'][type_key]['collections'].append({
+                        'name': collection_info['name'],
+                        'document_count': collection_info.get('count', 0),
+                        'created_at': metadata.get('created_at', 'unknown')
+                    })
+                    
+                except ValueError:
+                    # Invalid collection type
+                    type_summary['untyped'].append(collection_info['name'])
+            else:
+                # No collection type metadata
+                type_summary['untyped'].append(collection_info['name'])
+        
+        return type_summary
 
 
 # Convenience functions for common operations
@@ -541,24 +773,28 @@ class ChromaDBManager:
 def create_chroma_manager(
     config_file: Optional[str] = None,
     persist_directory: Optional[str] = None,
-    in_memory: bool = False
+    in_memory: bool = False,
+    collection_type_manager: Optional[CollectionTypeManager] = None
 ) -> ChromaDBManager:
     """
-    Factory function to create a ChromaDBManager instance.
+    Factory function to create ChromaDBManager instance.
     
     Args:
         config_file: Path to configuration file
         persist_directory: Custom persist directory
-        in_memory: Use in-memory database
+        in_memory: Use in-memory database (for testing)
+        collection_type_manager: Optional collection type manager
         
     Returns:
-        Configured ChromaDBManager instance
+        Initialized ChromaDBManager instance
     """
-    config_manager = ConfigManager(config_file=config_file)
+    config_manager = ConfigManager(config_file=config_file) if config_file else ConfigManager()
+    
     return ChromaDBManager(
         config_manager=config_manager,
         persist_directory=persist_directory,
-        in_memory=in_memory
+        in_memory=in_memory,
+        collection_type_manager=collection_type_manager
     )
 
 
@@ -594,4 +830,66 @@ def get_default_collection_types() -> Dict[str, Dict[str, Any]]:
                 'priority': 'low'
             }
         }
-    } 
+    }
+
+    def create_typed_collection(
+        self,
+        collection_type: Union[CollectionType, str],
+        project_name: Optional[str] = None,
+        suffix: Optional[str] = None,
+        owner_id: str = "",
+        team_id: Optional[str] = None,
+        force_recreate: bool = False,
+        **kwargs
+    ) -> Tuple[chromadb.Collection, CollectionMetadata]:
+        """
+        Create a collection with auto-generated name and full type integration.
+        
+        Args:
+            collection_type: Collection type for configuration
+            project_name: Project name for naming (used with PROJECT_SPECIFIC)
+            suffix: Additional suffix for uniqueness
+            owner_id: Owner user ID
+            team_id: Team ID for permissions
+            force_recreate: Delete existing collection if it exists
+            **kwargs: Additional metadata
+            
+        Returns:
+            Tuple of (ChromaDB collection, CollectionMetadata instance)
+        """
+        try:
+            # Generate standardized collection name
+            collection_name = self.collection_type_manager.create_collection_name(
+                collection_type=collection_type,
+                project_name=project_name,
+                suffix=suffix
+            )
+            
+            # Get type configuration
+            type_config = self.collection_type_manager.get_collection_config(collection_type)
+            
+            # Create collection metadata
+            collection_metadata = type_config.create_collection_metadata(
+                collection_name=collection_name,
+                owner_id=owner_id,
+                team_id=team_id,
+                **kwargs
+            )
+            
+            # Create ChromaDB collection
+            chroma_collection = self.create_collection(
+                name=collection_name,
+                collection_type=collection_type,
+                metadata=collection_metadata.to_dict(),
+                force_recreate=force_recreate,
+                owner_id=owner_id,
+                team_id=team_id
+            )
+            
+            self.logger.info(f"Successfully created typed collection: {collection_name}")
+            return chroma_collection, collection_metadata
+            
+        except Exception as e:
+            error_msg = f"Failed to create typed collection: {e}"
+            self.logger.error(error_msg)
+            raise VectorStoreError(error_msg) from e 
