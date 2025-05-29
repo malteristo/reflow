@@ -6,9 +6,22 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock, MagicMock
 from typing import Dict, Any, List
+import numpy as np
 
 # Configure asyncio for pytest-asyncio
 pytest_plugins = ("pytest_asyncio",)
+
+
+@pytest.fixture
+def temp_directory():
+    """Provide a temporary directory for testing."""
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
+    
+    yield temp_path
+    
+    # Cleanup temporary directory
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -28,6 +41,114 @@ def temp_vector_store():
     
     # Cleanup temporary directory
     shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.fixture
+def sample_embeddings():
+    """Provide sample embedding vectors for testing."""
+    return [
+        [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1],
+        [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2],
+        [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3],
+        [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4]
+    ]
+
+
+@pytest.fixture
+def sample_metadata():
+    """Provide sample metadata for testing."""
+    return [
+        {
+            "document_type": "markdown",
+            "source_path": "/docs/ml/basics.md",
+            "created_at": "2024-01-01T00:00:00Z",
+            "team_id": "team1",
+            "priority": 5,
+            "tags": ["python", "ml"]
+        },
+        {
+            "document_type": "code",
+            "source_path": "/src/models/neural_net.py",
+            "created_at": "2024-01-02T00:00:00Z",
+            "team_id": "team2",
+            "priority": 8,
+            "tags": ["python", "deep-learning"]
+        },
+        {
+            "document_type": "markdown",
+            "source_path": "/docs/nlp/intro.md",
+            "created_at": "2024-01-03T00:00:00Z",
+            "team_id": "team1",
+            "priority": 3,
+            "tags": ["nlp", "transformers"]
+        }
+    ]
+
+
+@pytest.fixture
+def config_manager():
+    """Provide a mock ConfigManager for testing."""
+    mock_config = Mock()
+    mock_config.get.return_value = {
+        "vector_store": {
+            "type": "chromadb",
+            "persist_directory": None
+        },
+        "query": {
+            "max_results": 100,
+            "similarity_threshold": 0.0,
+            "enable_caching": True
+        }
+    }
+    mock_config.project_root = "/tmp/test_project"
+    return mock_config
+
+
+@pytest.fixture
+def in_memory_chroma_manager():
+    """Provide a mock ChromaDBManager for testing."""
+    mock_chroma = Mock()
+    mock_chroma.is_connected = True
+    mock_chroma.client = Mock()
+    mock_chroma.query_collection.return_value = {
+        "ids": [["doc1", "doc2", "doc3"]],
+        "documents": [["Sample doc 1", "Sample doc 2", "Sample doc 3"]],
+        "metadatas": [[{"type": "test"}, {"type": "test"}, {"type": "test"}]],
+        "distances": [[0.1, 0.2, 0.3]]
+    }
+    mock_chroma.get_collection.return_value = Mock()
+    mock_chroma.list_collections.return_value = [
+        {"name": "test_collection", "metadata": {}}
+    ]
+    mock_chroma.health_check.return_value = {"status": "healthy"}
+    return mock_chroma
+
+
+@pytest.fixture
+def collection_type_manager():
+    """Provide a mock CollectionTypeManager for testing."""
+    mock_ctm = Mock()
+    mock_ctm.get_collection_type_config.return_value = {
+        "max_documents": 1000,
+        "hnsw_parameters": {"ef": 100, "M": 16}
+    }
+    mock_ctm.determine_collection_type.return_value = "FUNDAMENTAL"
+    mock_ctm.get_available_types.return_value = ["FUNDAMENTAL", "PROJECT_SPECIFIC"]
+    return mock_ctm
+
+
+@pytest.fixture
+def data_preparation_manager():
+    """Provide a mock DataPreparationManager for testing."""
+    mock_dpm = Mock()
+    mock_dpm.clean_text.return_value = "Cleaned and normalized text"
+    mock_dpm.normalize_vector.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
+    mock_dpm.process_document.return_value = {
+        "cleaned_content": "Processed content",
+        "metadata": {"processed": True}
+    }
+    return mock_dpm
 
 
 @pytest.fixture
