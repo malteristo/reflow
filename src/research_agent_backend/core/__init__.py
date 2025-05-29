@@ -11,8 +11,30 @@ from .vector_store import (
     get_default_collection_types,
 )
 
+from .embedding_service import (
+    EmbeddingService,
+    EmbeddingServiceError,
+    ModelNotFoundError,
+    EmbeddingDimensionError,
+    BatchProcessingError,
+)
+
+from .local_embedding_service import (
+    LocalEmbeddingService,
+    ModelCacheManager,
+    EmbeddingModelConfig,
+)
+
 __all__ = [
     "ChromaDBManager",
     "create_chroma_manager", 
     "get_default_collection_types",
+    "EmbeddingService",
+    "EmbeddingServiceError",
+    "ModelNotFoundError", 
+    "EmbeddingDimensionError",
+    "BatchProcessingError",
+    "LocalEmbeddingService",
+    "ModelCacheManager",
+    "EmbeddingModelConfig",
 ]
