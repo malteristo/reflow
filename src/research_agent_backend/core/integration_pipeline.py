@@ -87,6 +87,37 @@ class DocumentProcessingPipeline:
         results = []
         self.logger.info(f"Starting document processing pipeline for {len(documents)} documents")
         
+        # Check vector store connection before processing
+        try:
+            health_status = self.vector_store.health_check()
+            if not health_status.get("status") == "healthy":
+                # Return error results for all documents if connection fails
+                for i, doc in enumerate(documents):
+                    error_result = ProcessingResult(
+                        document_id=f"doc_{i}",
+                        status="error",
+                        chunks_created=0,
+                        embeddings_generated=0,
+                        error_message="Vector store connection failure",
+                        processing_time=0.0
+                    )
+                    results.append(error_result)
+                return results
+        except Exception as e:
+            self.logger.error(f"Vector store health check failed: {e}")
+            # Return error results for all documents if connection check fails
+            for i, doc in enumerate(documents):
+                error_result = ProcessingResult(
+                    document_id=f"doc_{i}",
+                    status="error",
+                    chunks_created=0,
+                    embeddings_generated=0,
+                    error_message=f"Connection failure: {str(e)}",
+                    processing_time=0.0
+                )
+                results.append(error_result)
+            return results
+        
         for i, doc in enumerate(documents):
             start_time = time.time()
             
@@ -430,7 +461,7 @@ class CollectionTypeManager:
         """Initialize collection type manager."""
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.supported_types = ["documentation", "reference", "tutorial", "code", "notes"]
+        self.supported_types = ["FUNDAMENTAL", "PROJECT_SPECIFIC", "EXPERIMENTAL", "documentation", "reference", "tutorial", "code", "notes"]
     
     def get_collection_config(self, collection_type: str) -> Dict[str, Any]:
         """
@@ -438,40 +469,60 @@ class CollectionTypeManager:
         
         REFACTOR PHASE: Type-aware configuration generation.
         """
+        # Handle unknown collection types
+        original_type = collection_type
         if collection_type not in self.supported_types:
             self.logger.warning(f"Unknown collection type: {collection_type}")
             collection_type = "documentation"  # Default fallback
         
-        # Type-specific configurations
+        # Type-specific configurations with max_documents
         base_config = {
             "type": collection_type,
             "embedding_function": "sentence-transformers",
             "distance_metric": "cosine",
             "created_at": time.time(),
-            "version": "1.0.0"
+            "version": "1.0.0",
+            "max_documents": 1000  # Default max documents
         }
         
         # Add type-specific enhancements
-        if collection_type == "documentation":
+        if collection_type in ["FUNDAMENTAL", "documentation"]:
             base_config.update({
                 "chunk_strategy": "markdown_aware",
                 "metadata_fields": ["section", "category", "tags"],
-                "search_boost": 1.2
+                "search_boost": 1.2,
+                "max_documents": 5000  # Higher limit for fundamental docs
             })
-        elif collection_type == "code":
+        elif collection_type in ["PROJECT_SPECIFIC", "code"]:
             base_config.update({
                 "chunk_strategy": "syntax_aware",
                 "metadata_fields": ["language", "function", "class"],
-                "search_boost": 1.0
+                "search_boost": 1.0,
+                "max_documents": 2000  # Medium limit for project-specific
             })
-        elif collection_type == "reference":
+        elif collection_type in ["EXPERIMENTAL", "reference"]:
             base_config.update({
                 "chunk_strategy": "semantic",
                 "metadata_fields": ["api_version", "method", "parameters"],
-                "search_boost": 1.1
+                "search_boost": 1.1,
+                "max_documents": 1500  # Medium limit for experimental
+            })
+        elif collection_type == "tutorial":
+            base_config.update({
+                "chunk_strategy": "structured",
+                "metadata_fields": ["step", "difficulty", "topic"],
+                "search_boost": 1.3,
+                "max_documents": 800  # Lower limit for tutorials
+            })
+        elif collection_type == "notes":
+            base_config.update({
+                "chunk_strategy": "flexible",
+                "metadata_fields": ["date", "author", "topic"],
+                "search_boost": 0.9,
+                "max_documents": 3000  # Higher limit for notes
             })
         
-        self.logger.debug(f"Generated config for collection type: {collection_type}")
+        self.logger.debug(f"Generated config for collection type: {collection_type} (originally: {original_type})")
         return base_config
 
 
