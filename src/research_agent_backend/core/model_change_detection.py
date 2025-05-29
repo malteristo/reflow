@@ -229,12 +229,10 @@ class ModelFingerprint:
         Raises:
             ValueError: If data is malformed or invalid
         """
-        # Create a copy to avoid modifying the original
-        data = data.copy()
-        
-        # Handle datetime deserialization
+        # Handle datetime deserialization in-place for performance
         if "created_at" in data and isinstance(data["created_at"], str):
-            data["created_at"] = datetime.fromisoformat(data["created_at"])
+            # Create copy only when needed for datetime conversion
+            data = {**data, "created_at": datetime.fromisoformat(data["created_at"])}
         
         return cls(**data)
     
@@ -490,10 +488,10 @@ class ModelChangeDetector:
                 f"Registered model '{fingerprint.model_name}' (type: {change_type})"
             )
             
-            # Auto-save if enabled
+            # Auto-save if enabled (use unsafe version since we already hold the lock)
             if self.auto_save:
                 try:
-                    self.save_to_disk()
+                    self._save_to_disk_unsafe()
                 except Exception as e:
                     logger.error(f"Auto-save failed for model '{fingerprint.model_name}': {e}")
                     raise PersistenceError(f"Failed to auto-save model fingerprint: {e}")
@@ -541,10 +539,10 @@ class ModelChangeDetector:
                 f"(type: {change_type}, reindex: {event.requires_reindexing})"
             )
             
-            # Auto-save if enabled
+            # Auto-save if enabled (use unsafe version since we already hold the lock)
             if self.auto_save:
                 try:
-                    self.save_to_disk()
+                    self._save_to_disk_unsafe()
                 except Exception as e:
                     logger.error(f"Auto-save failed for model '{fingerprint.model_name}': {e}")
                     raise PersistenceError(f"Failed to auto-save model fingerprint: {e}")
@@ -571,7 +569,8 @@ class ModelChangeDetector:
         Detect if a model has changed compared to registered state.
         
         Performs efficient change detection by comparing the provided
-        fingerprint against the currently registered state.
+        fingerprint against the currently registered state. Optimized
+        for performance by checking checksums first.
         
         Args:
             fingerprint: Current model fingerprint to check
@@ -586,11 +585,20 @@ class ModelChangeDetector:
                 logger.debug(f"New model detected: {fingerprint.model_name}")
                 return True
             
+            # Fast path: Check checksum first as it's most likely to differ
+            if existing.checksum != fingerprint.checksum:
+                logger.debug(
+                    f"Model change detected for '{fingerprint.model_name}': "
+                    f"checksum {existing.checksum} -> {fingerprint.checksum}"
+                )
+                return True
+            
+            # Fallback to full equality check for other differences
             changed = existing != fingerprint
             if changed:
                 logger.debug(
                     f"Model change detected for '{fingerprint.model_name}': "
-                    f"checksum {existing.checksum} -> {fingerprint.checksum}"
+                    f"non-checksum difference (version/metadata)"
                 )
             
             return changed
@@ -639,29 +647,41 @@ class ModelChangeDetector:
             PersistenceError: If saving fails due to I/O or serialization errors
         """
         with self._instance_lock:
-            try:
-                # Ensure parent directory exists
-                self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Serialize fingerprints
-                data = {
-                    name: fingerprint.to_dict()
-                    for name, fingerprint in self._fingerprints.items()
-                }
-                
-                # Write to temporary file first, then rename for atomicity
-                temp_path = self.storage_path.with_suffix('.tmp')
-                with temp_path.open('w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                
-                # Atomic rename
-                temp_path.replace(self.storage_path)
-                
-                logger.debug(f"Saved {len(data)} fingerprints to {self.storage_path}")
-                
-            except Exception as e:
-                logger.error(f"Failed to save fingerprints to {self.storage_path}: {e}")
-                raise PersistenceError(f"Failed to save fingerprints to disk: {e}")
+            self._save_to_disk_unsafe()
+    
+    def _save_to_disk_unsafe(self) -> None:
+        """
+        Internal method to save fingerprints without acquiring lock.
+        
+        This method assumes the caller already holds self._instance_lock.
+        Used internally by auto-save functionality to avoid deadlock.
+        
+        Raises:
+            PersistenceError: If saving fails due to I/O or serialization errors
+        """
+        try:
+            # Ensure parent directory exists
+            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Serialize fingerprints
+            data = {
+                name: fingerprint.to_dict()
+                for name, fingerprint in self._fingerprints.items()
+            }
+            
+            # Write to temporary file first, then rename for atomicity
+            temp_path = self.storage_path.with_suffix('.tmp')
+            with temp_path.open('w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Atomic rename
+            temp_path.replace(self.storage_path)
+            
+            logger.debug(f"Saved {len(data)} fingerprints to {self.storage_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save fingerprints: {e}")
+            raise PersistenceError(f"Failed to save fingerprints to {self.storage_path}: {e}")
     
     def load_from_disk(self) -> None:
         """
@@ -738,4 +758,95 @@ class ModelChangeDetector:
             if old_fingerprints:
                 logger.info(f"Cleaned up {len(old_fingerprints)} old fingerprints")
             
-            return len(old_fingerprints) 
+            return len(old_fingerprints)
+
+    def has_models(self) -> bool:
+        """
+        Check if any models are currently registered.
+        
+        Fast check for model registry state without acquiring locks
+        for read-only operations on atomic operations.
+        
+        Returns:
+            True if at least one model is registered
+        """
+        return len(self._fingerprints) > 0
+    
+    def get_models_summary(self) -> Dict[str, Any]:
+        """
+        Get summary information about registered models.
+        
+        Useful for integration with document chunking pipeline to
+        understand model state without exposing internals.
+        
+        Returns:
+            Dictionary containing model registry summary
+        """
+        with self._instance_lock:
+            return {
+                "total_models": len(self._fingerprints),
+                "model_names": list(self._fingerprints.keys()),
+                "model_types": [fp.model_type for fp in self._fingerprints.values()],
+                "storage_path": str(self.storage_path),
+                "auto_save_enabled": self.auto_save
+            }
+    
+    def register_models_bulk(self, fingerprints: List[ModelFingerprint]) -> List[ModelChangeEvent]:
+        """
+        Register multiple models in a single transaction.
+        
+        Optimized bulk operation for registering multiple models
+        with a single lock acquisition and optional auto-save at the end.
+        
+        Args:
+            fingerprints: List of ModelFingerprint objects to register
+            
+        Returns:
+            List of ModelChangeEvent objects for each registration
+            
+        Raises:
+            PersistenceError: If auto_save is enabled and saving fails
+        """
+        if not fingerprints:
+            return []
+        
+        events = []
+        with self._instance_lock:
+            for fingerprint in fingerprints:
+                old_fingerprint = self._fingerprints.get(fingerprint.model_name)
+                self._fingerprints[fingerprint.model_name] = fingerprint
+                
+                # Determine change type
+                if old_fingerprint is None:
+                    change_type: ChangeType = "new_model"
+                elif old_fingerprint.version != fingerprint.version:
+                    change_type = "version_update"
+                elif old_fingerprint.checksum != fingerprint.checksum:
+                    change_type = "checksum_change"
+                else:
+                    change_type = "config_change"
+                
+                # Create change event
+                event = ModelChangeEvent(
+                    model_name=fingerprint.model_name,
+                    change_type=change_type,
+                    old_fingerprint=old_fingerprint,
+                    new_fingerprint=fingerprint,
+                    requires_reindexing=change_type in ("new_model", "version_update", "checksum_change")
+                )
+                events.append(event)
+                
+                logger.info(
+                    f"Bulk registered model '{fingerprint.model_name}' "
+                    f"(type: {change_type}, reindex: {event.requires_reindexing})"
+                )
+            
+            # Single auto-save for all models if enabled
+            if self.auto_save:
+                try:
+                    self._save_to_disk_unsafe()
+                except Exception as e:
+                    logger.error(f"Bulk auto-save failed for {len(fingerprints)} models: {e}")
+                    raise PersistenceError(f"Failed to auto-save bulk model fingerprints: {e}")
+        
+        return events 

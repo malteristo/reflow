@@ -4696,3 +4696,1125 @@ class AtomicUnitHandler:
         except Exception as e:
             self.logger.error(f"Error merging overlapping units: {e}")
             return units  # Return original units if merge fails
+
+
+# =============================================================================
+# METADATA EXTRACTION SYSTEM - GREEN PHASE IMPLEMENTATION
+# =============================================================================
+
+import yaml
+import json
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    try:
+        import tomli as tomllib  # Fallback for older Python versions
+    except ImportError:
+        tomllib = None
+
+from typing import List, Dict, Any, Optional, Union, Tuple
+from dataclasses import dataclass, field
+
+
+class FrontmatterParseError(Exception):
+    """Exception raised when frontmatter parsing fails."""
+    pass
+
+
+@dataclass
+class FrontmatterResult:
+    """Result container for frontmatter parsing."""
+    has_frontmatter: bool
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    content_without_frontmatter: str = ""
+    frontmatter_type: Optional[str] = None
+
+
+@dataclass
+class InlineTag:
+    """Represents an inline tag like @tag:value."""
+    key: str
+    value: str
+    position: int
+
+
+@dataclass 
+class InlineMetadataItem:
+    """Represents an inline metadata item like <!-- @key: value -->."""
+    key: str
+    value: str
+    position: int
+    parsed_value: Any = None
+
+
+@dataclass
+class InlineMetadataResult:
+    """Result container for inline metadata extraction."""
+    tags: List[InlineTag] = field(default_factory=list)
+    metadata: List[InlineMetadataItem] = field(default_factory=list)
+    cleaned_content: str = ""
+
+
+@dataclass
+class DocumentMetadata:
+    """Complete metadata for a document."""
+    document_id: str
+    title: Optional[str] = None
+    author: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    frontmatter: Dict[str, Any] = field(default_factory=dict)
+    inline_metadata: Dict[str, Any] = field(default_factory=dict)
+    inline_tags: List[InlineTag] = field(default_factory=list)
+
+
+class FrontmatterParser:
+    """Parser for YAML and TOML frontmatter."""
+    
+    def __init__(self):
+        self.yaml_pattern = re.compile(r'^---\s*\n(.*?\n)---\s*\n', re.DOTALL | re.MULTILINE)
+        self.toml_pattern = re.compile(r'^\+\+\+\s*\n(.*?\n)\+\+\+\s*\n', re.DOTALL | re.MULTILINE)
+    
+    def parse(self, content: str) -> FrontmatterResult:
+        """Parse frontmatter from content."""
+        # Try YAML first
+        yaml_match = self.yaml_pattern.match(content)
+        if yaml_match:
+            try:
+                frontmatter_content = yaml_match.group(1)
+                metadata = yaml.safe_load(frontmatter_content) or {}
+                content_without = content[yaml_match.end():]
+                return FrontmatterResult(
+                    has_frontmatter=True,
+                    metadata=metadata,
+                    content_without_frontmatter=content_without,
+                    frontmatter_type="yaml"
+                )
+            except yaml.YAMLError as e:
+                raise FrontmatterParseError(f"Invalid YAML frontmatter: {e}")
+        
+        # Try TOML 
+        toml_match = self.toml_pattern.match(content)
+        if toml_match:
+            if tomllib is None:
+                raise FrontmatterParseError("TOML parsing not available - install tomli package")
+            try:
+                frontmatter_content = toml_match.group(1)
+                metadata = tomllib.loads(frontmatter_content)
+                content_without = content[toml_match.end():]
+                return FrontmatterResult(
+                    has_frontmatter=True,
+                    metadata=metadata,
+                    content_without_frontmatter=content_without,
+                    frontmatter_type="toml"
+                )
+            except Exception as e:
+                raise FrontmatterParseError(f"Invalid TOML frontmatter: {e}")
+        
+        # No frontmatter found
+        return FrontmatterResult(
+            has_frontmatter=False,
+            metadata={},
+            content_without_frontmatter=content,
+            frontmatter_type=None
+        )
+
+
+class InlineMetadataExtractor:
+    """Extractor for inline metadata tags and comments."""
+    
+    def __init__(self):
+        # Different metadata patterns
+        self.tag_pattern = re.compile(r'@(\w+):(\w+)')
+        self.bracket_pattern = re.compile(r'\[\[(\w+):([^\]]+)\]\]')
+        self.brace_pattern = re.compile(r'\{(\w+):([^}]+)\}')
+        self.comment_pattern = re.compile(r'<!-- @([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^>]+?) -->')
+        self.json_comment_pattern = re.compile(r'<!-- @([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(\{[^>]+?\}) -->')
+    
+    def extract(self, content: str, remove_from_content: bool = False) -> InlineMetadataResult:
+        """Extract inline metadata from content."""
+        tags = []
+        metadata = []
+        cleaned_content = content
+        
+        # Extract @tag:value patterns
+        for match in self.tag_pattern.finditer(content):
+            tag = InlineTag(
+                key=match.group(1),
+                value=match.group(2), 
+                position=match.start()
+            )
+            tags.append(tag)
+            if remove_from_content:
+                cleaned_content = cleaned_content.replace(match.group(0), "")
+        
+        # Extract [[key:value]] patterns
+        for match in self.bracket_pattern.finditer(content):
+            tag = InlineTag(
+                key=match.group(1),
+                value=match.group(2),
+                position=match.start()
+            )
+            tags.append(tag)
+            if remove_from_content:
+                cleaned_content = cleaned_content.replace(match.group(0), "")
+        
+        # Extract {key:value} patterns
+        for match in self.brace_pattern.finditer(content):
+            tag = InlineTag(
+                key=match.group(1),
+                value=match.group(2),
+                position=match.start()
+            )
+            tags.append(tag)
+            if remove_from_content:
+                cleaned_content = cleaned_content.replace(match.group(0), "")
+        
+        # Extract JSON metadata from comments first
+        for match in self.json_comment_pattern.finditer(content):
+            try:
+                parsed_json = json.loads(match.group(2))
+                item = InlineMetadataItem(
+                    key=match.group(1),
+                    value=match.group(2),
+                    position=match.start(),
+                    parsed_value=parsed_json
+                )
+                metadata.append(item)
+                if remove_from_content:
+                    cleaned_content = cleaned_content.replace(match.group(0), "")
+            except json.JSONDecodeError:
+                pass
+        
+        # Extract regular comment metadata
+        for match in self.comment_pattern.finditer(content):
+            # Skip if already processed as JSON
+            if not any(item.position == match.start() for item in metadata):
+                item = InlineMetadataItem(
+                    key=match.group(1),
+                    value=match.group(2).strip(),
+                    position=match.start()
+                )
+                metadata.append(item)
+                if remove_from_content:
+                    cleaned_content = cleaned_content.replace(match.group(0), "")
+        
+        return InlineMetadataResult(
+            tags=tags,
+            metadata=metadata,
+            cleaned_content=cleaned_content
+        )
+
+
+class MetadataRegistry:
+    """Registry for storing and querying document metadata."""
+    
+    def __init__(self):
+        self.documents: Dict[str, DocumentMetadata] = {}
+    
+    def register(self, metadata: DocumentMetadata) -> None:
+        """Register document metadata."""
+        self.documents[metadata.document_id] = metadata
+    
+    def update(self, metadata: DocumentMetadata) -> None:
+        """Update existing document metadata."""
+        self.documents[metadata.document_id] = metadata
+    
+    def remove(self, document_id: str) -> None:
+        """Remove document from registry."""
+        if document_id in self.documents:
+            del self.documents[document_id]
+    
+    def has_document(self, document_id: str) -> bool:
+        """Check if document exists in registry."""
+        return document_id in self.documents
+    
+    def get_document(self, document_id: str) -> Optional[DocumentMetadata]:
+        """Get document metadata by ID."""
+        return self.documents.get(document_id)
+    
+    def get_document_count(self) -> int:
+        """Get total number of documents."""
+        return len(self.documents)
+    
+    def query_by_tags(self, tags: List[str]) -> List[DocumentMetadata]:
+        """Query documents by tags."""
+        results = []
+        for doc in self.documents.values():
+            if any(tag in doc.tags for tag in tags):
+                results.append(doc)
+        return results
+    
+    def query_by_author(self, author: str) -> List[DocumentMetadata]:
+        """Query documents by author."""
+        return [doc for doc in self.documents.values() if doc.author == author]
+    
+    def query_by_metadata(self, key_path: str, value: Any) -> List[DocumentMetadata]:
+        """Query documents by metadata key-value pairs."""
+        results = []
+        for doc in self.documents.values():
+            if self._get_nested_value(doc, key_path) == value:
+                results.append(doc)
+        return results
+    
+    def query_complex(self, author: Optional[str] = None, tags_any: Optional[List[str]] = None, 
+                     metadata_filters: Optional[Dict[str, Any]] = None) -> List[DocumentMetadata]:
+        """Complex query with multiple criteria."""
+        results = list(self.documents.values())
+        
+        if author:
+            results = [doc for doc in results if doc.author == author]
+        
+        if tags_any:
+            results = [doc for doc in results if any(tag in doc.tags for tag in tags_any)]
+        
+        if metadata_filters:
+            for key_path, value in metadata_filters.items():
+                results = [doc for doc in results if self._get_nested_value(doc, key_path) == value]
+        
+        return results
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get metadata statistics."""
+        if not self.documents:
+            return {"total_documents": 0, "unique_authors": 0, "tag_frequencies": {}, "author_frequencies": {}}
+        
+        tag_freq = {}
+        author_freq = {}
+        
+        for doc in self.documents.values():
+            # Count tags
+            for tag in doc.tags:
+                tag_freq[tag] = tag_freq.get(tag, 0) + 1
+            
+            # Count authors
+            if doc.author:
+                author_freq[doc.author] = author_freq.get(doc.author, 0) + 1
+        
+        return {
+            "total_documents": len(self.documents),
+            "unique_authors": len(author_freq),
+            "tag_frequencies": tag_freq,
+            "author_frequencies": author_freq
+        }
+    
+    def _get_nested_value(self, doc: DocumentMetadata, key_path: str) -> Any:
+        """Get nested value from document using dot notation."""
+        parts = key_path.split('.')
+        value = doc
+        
+        for part in parts:
+            if hasattr(value, part):
+                value = getattr(value, part)
+            elif isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return None
+        
+        return value
+
+
+@dataclass
+class MetadataExtractionResult:
+    """Result of complete metadata extraction."""
+    document_metadata: DocumentMetadata
+    frontmatter_result: FrontmatterResult
+    inline_result: InlineMetadataResult
+    content_without_frontmatter: str
+
+
+class MetadataExtractor:
+    """Main class for extracting all types of metadata."""
+    
+    def __init__(self):
+        self.frontmatter_parser = FrontmatterParser()
+        self.inline_extractor = InlineMetadataExtractor()
+    
+    def extract_all(self, content: str, document_id: str) -> MetadataExtractionResult:
+        """Extract all metadata from document."""
+        # Parse frontmatter
+        frontmatter_result = self.frontmatter_parser.parse(content)
+        
+        # Extract inline metadata from content without frontmatter
+        inline_result = self.inline_extractor.extract(frontmatter_result.content_without_frontmatter)
+        
+        # Build combined metadata
+        combined_tags = frontmatter_result.metadata.get('tags', [])
+        if isinstance(combined_tags, str):
+            combined_tags = [combined_tags]
+        
+        inline_metadata_dict = {item.key: item.value for item in inline_result.metadata}
+        
+        document_metadata = DocumentMetadata(
+            document_id=document_id,
+            title=frontmatter_result.metadata.get('title'),
+            author=frontmatter_result.metadata.get('author'),
+            tags=combined_tags,
+            frontmatter=frontmatter_result.metadata,
+            inline_metadata=inline_metadata_dict,
+            inline_tags=inline_result.tags
+        )
+        
+        return MetadataExtractionResult(
+            document_metadata=document_metadata,
+            frontmatter_result=frontmatter_result,
+            inline_result=inline_result,
+            content_without_frontmatter=frontmatter_result.content_without_frontmatter
+        )
+
+
+class MetadataQuery:
+    """Helper class for querying metadata registry."""
+    
+    def find_by_tags(self, registry: MetadataRegistry, tags: List[str]) -> List[DocumentMetadata]:
+        """Find documents by tags."""
+        return registry.query_by_tags(tags)
+    
+    def find_by_author(self, registry: MetadataRegistry, author: str) -> List[DocumentMetadata]:
+        """Find documents by author."""
+        return registry.query_by_author(author)
+    
+    def find_by_metadata(self, registry: MetadataRegistry, key_path: str, value: Any) -> List[DocumentMetadata]:
+        """Find documents by metadata value."""
+        return registry.query_by_metadata(key_path, value)
+
+
+# =============================================================================
+# METADATA EXTRACTION SYSTEM - REFACTORED FOR PERFORMANCE & ARCHITECTURE  
+# =============================================================================
+
+import yaml
+import json
+import time
+import logging
+from functools import lru_cache
+from typing import List, Dict, Any, Optional, Union, Tuple, Set
+from dataclasses import dataclass, field
+
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    try:
+        import tomli as tomllib  # Fallback for older Python versions
+    except ImportError:
+        tomllib = None
+
+# Get logger for metadata extraction operations
+logger = logging.getLogger(__name__)
+
+
+class FrontmatterParseError(Exception):
+    """Exception raised when frontmatter parsing fails.
+    
+    This exception provides detailed information about frontmatter parsing
+    failures, including the line number, parsing error details, and suggested
+    fixes for common issues.
+    
+    Attributes:
+        message: Description of the parsing error
+        line_number: Line number where parsing failed (if available)
+        frontmatter_type: Type of frontmatter that failed (yaml/toml)
+        content_preview: Preview of problematic content for debugging
+    """
+    
+    def __init__(
+        self, 
+        message: str, 
+        line_number: Optional[int] = None,
+        frontmatter_type: Optional[str] = None,
+        content_preview: Optional[str] = None
+    ):
+        self.message = message
+        self.line_number = line_number
+        self.frontmatter_type = frontmatter_type
+        self.content_preview = content_preview
+        
+        # Build comprehensive error message
+        error_parts = [message]
+        if frontmatter_type:
+            error_parts.append(f"(Type: {frontmatter_type})")
+        if line_number:
+            error_parts.append(f"at line {line_number}")
+        if content_preview:
+            error_parts.append(f"Content: {content_preview[:100]}...")
+            
+        super().__init__(" ".join(error_parts))
+
+
+@dataclass
+class FrontmatterResult:
+    """Result container for frontmatter parsing operations.
+    
+    Encapsulates the results of frontmatter parsing including the extracted
+    metadata, content without frontmatter, and parsing metadata.
+    
+    Attributes:
+        has_frontmatter: True if valid frontmatter was detected and parsed
+        metadata: Dictionary containing parsed frontmatter data
+        content_without_frontmatter: Document content with frontmatter removed
+        frontmatter_type: Type of frontmatter detected ('yaml', 'toml', or None)
+        parse_time_ms: Time taken to parse frontmatter in milliseconds
+        warnings: List of non-fatal warnings encountered during parsing
+    """
+    has_frontmatter: bool
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    content_without_frontmatter: str = ""
+    frontmatter_type: Optional[str] = None
+    parse_time_ms: Optional[float] = None
+    warnings: List[str] = field(default_factory=list)
+    
+    def __post_init__(self):
+        """Validate result data after creation."""
+        if not isinstance(self.metadata, dict):
+            raise ValueError(f"metadata must be a dictionary, got {type(self.metadata)}")
+        if not isinstance(self.content_without_frontmatter, str):
+            raise ValueError(f"content_without_frontmatter must be a string, got {type(self.content_without_frontmatter)}")
+
+
+@dataclass
+class InlineTag:
+    """Represents an inline tag like @tag:value with position tracking.
+    
+    Used for simple key-value tags embedded directly in content.
+    
+    Attributes:
+        key: The tag key/name
+        value: The tag value
+        position: Character position in the source content where tag was found
+        line_number: Line number where tag appears (if tracked)
+    """
+    key: str
+    value: str
+    position: int
+    line_number: Optional[int] = None
+    
+    def __post_init__(self):
+        """Validate tag data."""
+        if not self.key or not isinstance(self.key, str):
+            raise ValueError(f"key must be a non-empty string, got: {self.key}")
+        if not isinstance(self.value, str):
+            raise ValueError(f"value must be a string, got: {type(self.value)}")
+        if self.position < 0:
+            raise ValueError(f"position must be non-negative, got: {self.position}")
+
+
+@dataclass 
+class InlineMetadataItem:
+    """Represents an inline metadata item with optional parsed value.
+    
+    Used for complex metadata items like JSON objects in comments.
+    
+    Attributes:
+        key: The metadata key/name
+        value: The raw metadata value as string
+        position: Character position in source content
+        parsed_value: Parsed representation (e.g., dict for JSON)
+        line_number: Line number where metadata appears (if tracked)
+        metadata_type: Type of metadata pattern that matched
+    """
+    key: str
+    value: str
+    position: int
+    parsed_value: Any = None
+    line_number: Optional[int] = None
+    metadata_type: str = "unknown"
+    
+    def __post_init__(self):
+        """Validate metadata item data."""
+        if not self.key or not isinstance(self.key, str):
+            raise ValueError(f"key must be a non-empty string, got: {self.key}")
+        if not isinstance(self.value, str):
+            raise ValueError(f"value must be a string, got: {type(self.value)}")
+        if self.position < 0:
+            raise ValueError(f"position must be non-negative, got: {self.position}")
+
+
+@dataclass
+class InlineMetadataResult:
+    """Result container for inline metadata extraction operations.
+    
+    Contains all inline metadata found in content along with processing
+    statistics and the cleaned content.
+    
+    Attributes:
+        tags: List of simple inline tags found
+        metadata: List of complex metadata items found
+        cleaned_content: Content with metadata removed (if requested)
+        extraction_time_ms: Time taken for extraction in milliseconds
+        patterns_matched: Set of pattern types that found matches
+        total_matches: Total number of metadata items found
+    """
+    tags: List[InlineTag] = field(default_factory=list)
+    metadata: List[InlineMetadataItem] = field(default_factory=list)
+    cleaned_content: str = ""
+    extraction_time_ms: Optional[float] = None
+    patterns_matched: Set[str] = field(default_factory=set)
+    total_matches: int = 0
+    
+    def __post_init__(self):
+        """Calculate derived statistics."""
+        self.total_matches = len(self.tags) + len(self.metadata)
+        self.patterns_matched = set()
+        
+        # Determine which patterns matched
+        if self.tags:
+            self.patterns_matched.add("inline_tags")
+        if any(item.metadata_type == "comment" for item in self.metadata):
+            self.patterns_matched.add("html_comments")
+        if any(item.metadata_type == "json_comment" for item in self.metadata):
+            self.patterns_matched.add("json_comments")
+
+
+@dataclass
+class DocumentMetadata:
+    """Complete metadata for a document with validation and utilities.
+    
+    Aggregates all metadata extracted from a document including frontmatter,
+    inline tags, and complex metadata items.
+    
+    Attributes:
+        document_id: Unique identifier for the document
+        title: Document title (from frontmatter or inferred)
+        author: Document author (from frontmatter)
+        tags: List of all tags associated with the document
+        frontmatter: Raw frontmatter data as parsed
+        inline_metadata: Dictionary of inline metadata items
+        inline_tags: List of inline tag objects with positions
+        created_at: Timestamp when metadata was extracted
+        updated_at: Timestamp when metadata was last updated
+        word_count: Approximate word count of document
+        character_count: Character count of document content
+    """
+    document_id: str
+    title: Optional[str] = None
+    author: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    frontmatter: Dict[str, Any] = field(default_factory=dict)
+    inline_metadata: Dict[str, Any] = field(default_factory=dict)
+    inline_tags: List[InlineTag] = field(default_factory=list)
+    created_at: Optional[float] = None
+    updated_at: Optional[float] = None
+    word_count: Optional[int] = None
+    character_count: Optional[int] = None
+    
+    def __post_init__(self):
+        """Initialize timestamps and validate data."""
+        if not self.document_id:
+            raise ValueError("document_id cannot be empty")
+        
+        current_time = time.time()
+        if self.created_at is None:
+            self.created_at = current_time
+        if self.updated_at is None:
+            self.updated_at = current_time
+    
+    def update_timestamp(self):
+        """Update the last modified timestamp."""
+        self.updated_at = time.time()
+    
+    def get_all_tags(self) -> List[str]:
+        """Get all tags from both frontmatter and inline sources."""
+        all_tags = set(self.tags)
+        
+        # Add frontmatter tags
+        if 'tags' in self.frontmatter:
+            fm_tags = self.frontmatter['tags']
+            if isinstance(fm_tags, list):
+                all_tags.update(fm_tags)
+            elif isinstance(fm_tags, str):
+                all_tags.add(fm_tags)
+        
+        # Add inline tag keys and values
+        for tag in self.inline_tags:
+            all_tags.add(tag.key)
+            all_tags.add(tag.value)
+        
+        return sorted(list(all_tags))
+    
+    def to_search_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary optimized for search indexing."""
+        return {
+            'id': self.document_id,
+            'title': self.title or '',
+            'author': self.author or '',
+            'all_tags': self.get_all_tags(),
+            'content_stats': {
+                'word_count': self.word_count or 0,
+                'character_count': self.character_count or 0
+            },
+            'metadata_keys': list(self.inline_metadata.keys()),
+            'has_frontmatter': bool(self.frontmatter),
+            'inline_tag_count': len(self.inline_tags),
+            'created_at': self.created_at,
+            'updated_at': self.updated_at
+        }
+
+
+class FrontmatterParser:
+    """Enhanced frontmatter parser with performance optimizations and robust error handling.
+    
+    Parses YAML and TOML frontmatter from Markdown documents with comprehensive
+    error reporting, performance tracking, and caching support.
+    
+    Features:
+    - Support for both YAML and TOML frontmatter formats
+    - Detailed error reporting with line numbers and suggestions
+    - Performance tracking and optimization
+    - Robust validation and edge case handling
+    - Configurable parsing options
+    """
+    
+    def __init__(self, enable_performance_tracking: bool = True):
+        """Initialize the frontmatter parser.
+        
+        Args:
+            enable_performance_tracking: Whether to track parsing performance metrics
+        """
+        self.enable_performance_tracking = enable_performance_tracking
+        self._performance_stats = {
+            'total_parses': 0,
+            'yaml_parses': 0,
+            'toml_parses': 0,
+            'parse_errors': 0,
+            'avg_parse_time_ms': 0.0
+        }
+        
+        # Compile frontmatter boundary patterns once for performance
+        self._yaml_pattern = re.compile(r'^---\s*\n(.*?)\n---\s*\n', re.DOTALL | re.MULTILINE)
+        self._toml_pattern = re.compile(r'^\+\+\+\s*\n(.*?)\n\+\+\+\s*\n', re.DOTALL | re.MULTILINE)
+        
+        logger.debug("FrontmatterParser initialized with performance tracking: %s", enable_performance_tracking)
+    
+    def parse(self, content: str) -> FrontmatterResult:
+        """Parse frontmatter from document content.
+        
+        Attempts to parse frontmatter in both YAML and TOML formats, providing
+        detailed error information if parsing fails.
+        
+        Args:
+            content: The full document content to parse
+            
+        Returns:
+            FrontmatterResult with parsing results and metadata
+            
+        Raises:
+            FrontmatterParseError: If frontmatter is malformed and cannot be parsed
+        """
+        if not isinstance(content, str):
+            raise ValueError(f"content must be a string, got {type(content)}")
+        
+        start_time = time.time() if self.enable_performance_tracking else None
+        warnings = []
+        
+        try:
+            # Try YAML first (more common)
+            yaml_match = self._yaml_pattern.match(content)
+            if yaml_match:
+                result = self._parse_yaml_frontmatter(yaml_match, content, warnings)
+                if self.enable_performance_tracking:
+                    result.parse_time_ms = (time.time() - start_time) * 1000
+                    self._update_performance_stats('yaml', result.parse_time_ms)
+                return result
+            
+            # Try TOML if YAML didn't match
+            toml_match = self._toml_pattern.match(content)
+            if toml_match:
+                result = self._parse_toml_frontmatter(toml_match, content, warnings)
+                if self.enable_performance_tracking:
+                    result.parse_time_ms = (time.time() - start_time) * 1000
+                    self._update_performance_stats('toml', result.parse_time_ms)
+                return result
+            
+            # No frontmatter found
+            result = FrontmatterResult(
+                has_frontmatter=False,
+                content_without_frontmatter=content,
+                warnings=warnings
+            )
+            
+            if self.enable_performance_tracking:
+                result.parse_time_ms = (time.time() - start_time) * 1000
+                self._update_performance_stats('none', result.parse_time_ms)
+            
+            logger.debug("No frontmatter detected in document")
+            return result
+            
+        except Exception as e:
+            if self.enable_performance_tracking:
+                self._performance_stats['parse_errors'] += 1
+            logger.error("Frontmatter parsing failed: %s", str(e))
+            raise
+    
+    def _parse_yaml_frontmatter(self, match, content: str, warnings: List[str]) -> FrontmatterResult:
+        """Parse YAML frontmatter from regex match."""
+        frontmatter_content = match.group(1)
+        
+        try:
+            metadata = yaml.safe_load(frontmatter_content)
+            
+            # Handle case where YAML returns None for empty frontmatter
+            if metadata is None:
+                metadata = {}
+                warnings.append("Empty YAML frontmatter block")
+            
+            # Ensure result is a dictionary
+            if not isinstance(metadata, dict):
+                raise FrontmatterParseError(
+                    f"YAML frontmatter must be a mapping/object, got {type(metadata).__name__}",
+                    frontmatter_type="yaml",
+                    content_preview=frontmatter_content[:100]
+                )
+            
+            content_without_frontmatter = content[match.end():]
+            
+            logger.debug("Successfully parsed YAML frontmatter with %d keys", len(metadata))
+            
+            return FrontmatterResult(
+                has_frontmatter=True,
+                metadata=metadata,
+                content_without_frontmatter=content_without_frontmatter,
+                frontmatter_type="yaml",
+                warnings=warnings
+            )
+            
+        except yaml.YAMLError as e:
+            error_line = getattr(e, 'problem_mark', None)
+            line_number = error_line.line + 1 if error_line else None
+            
+            raise FrontmatterParseError(
+                f"Invalid YAML frontmatter: {str(e)}",
+                line_number=line_number,
+                frontmatter_type="yaml",
+                content_preview=frontmatter_content[:200]
+            )
+    
+    def _parse_toml_frontmatter(self, match, content: str, warnings: List[str]) -> FrontmatterResult:
+        """Parse TOML frontmatter from regex match."""
+        if tomllib is None:
+            raise FrontmatterParseError(
+                "TOML frontmatter detected but tomllib/tomli not available. "
+                "Install with: pip install tomli",
+                frontmatter_type="toml"
+            )
+        
+        frontmatter_content = match.group(1)
+        
+        try:
+            metadata = tomllib.loads(frontmatter_content)
+            content_without_frontmatter = content[match.end():]
+            
+            logger.debug("Successfully parsed TOML frontmatter with %d keys", len(metadata))
+            
+            return FrontmatterResult(
+                has_frontmatter=True,
+                metadata=metadata,
+                content_without_frontmatter=content_without_frontmatter,
+                frontmatter_type="toml",
+                warnings=warnings
+            )
+            
+        except Exception as e:  # tomllib can raise various exceptions
+            raise FrontmatterParseError(
+                f"Invalid TOML frontmatter: {str(e)}",
+                frontmatter_type="toml",
+                content_preview=frontmatter_content[:200]
+            )
+    
+    def _update_performance_stats(self, parse_type: str, parse_time_ms: float):
+        """Update internal performance statistics."""
+        self._performance_stats['total_parses'] += 1
+        
+        if parse_type == 'yaml':
+            self._performance_stats['yaml_parses'] += 1
+        elif parse_type == 'toml':
+            self._performance_stats['toml_parses'] += 1
+        
+        # Update running average
+        total = self._performance_stats['total_parses']
+        current_avg = self._performance_stats['avg_parse_time_ms']
+        self._performance_stats['avg_parse_time_ms'] = (
+            (current_avg * (total - 1) + parse_time_ms) / total
+        )
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get performance statistics for monitoring and optimization."""
+        return self._performance_stats.copy()
+    
+    def detect_frontmatter_type(self, content: str) -> Optional[str]:
+        """Detect the type of frontmatter without parsing.
+        
+        Args:
+            content: Document content to analyze
+            
+        Returns:
+            'yaml', 'toml', or None if no frontmatter detected
+        """
+        if self._yaml_pattern.match(content):
+            return "yaml"
+        elif self._toml_pattern.match(content):
+            return "toml"
+        return None
+
+
+class InlineMetadataExtractor:
+    """Enhanced inline metadata extractor with pattern caching and performance optimization.
+    
+    Extracts various forms of inline metadata from document content including
+    simple tags, complex metadata items, and JSON blocks.
+    
+    Supported patterns:
+    - @tag:value - Simple inline tags
+    - [[key:value]] - Wiki-style metadata
+    - {key:value} - Brace-style metadata  
+    - <!-- @key: value --> - HTML comment metadata
+    - <!-- @key: {"json": "object"} --> - JSON metadata in comments
+    
+    Features:
+    - Compiled regex patterns for performance
+    - Position tracking and line number detection
+    - Content cleaning capabilities
+    - Comprehensive error handling
+    - Performance metrics tracking
+    """
+    
+    def __init__(self, enable_line_tracking: bool = True, enable_performance_tracking: bool = True):
+        """Initialize the inline metadata extractor.
+        
+        Args:
+            enable_line_tracking: Whether to track line numbers for metadata items
+            enable_performance_tracking: Whether to collect performance metrics
+        """
+        self.enable_line_tracking = enable_line_tracking
+        self.enable_performance_tracking = enable_performance_tracking
+        
+        # Pre-compile all regex patterns for performance
+        self._compile_patterns()
+        
+        # Performance tracking
+        self._performance_stats = {
+            'total_extractions': 0,
+            'total_items_found': 0,
+            'avg_extraction_time_ms': 0.0,
+            'pattern_usage': {
+                'tag_pattern': 0,
+                'bracket_pattern': 0, 
+                'brace_pattern': 0,
+                'comment_pattern': 0,
+                'json_comment_pattern': 0
+            }
+        }
+        
+        logger.debug("InlineMetadataExtractor initialized with line tracking: %s, performance tracking: %s",
+                    enable_line_tracking, enable_performance_tracking)
+    
+    @lru_cache(maxsize=1)
+    def _compile_patterns(self):
+        """Compile regex patterns with caching for performance."""
+        self.tag_pattern = re.compile(r'@(\w+):(\w+)')
+        self.bracket_pattern = re.compile(r'\[\[(\w+):([^\]]+)\]\]')
+        self.brace_pattern = re.compile(r'\{(\w+):([^}]+)\}')
+        self.comment_pattern = re.compile(r'<!-- @([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^>]+?) -->')
+        self.json_comment_pattern = re.compile(r'<!-- @([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(\{[^>]+?\}) -->')
+        
+        logger.debug("Compiled %d regex patterns for inline metadata extraction", 5)
+    
+    def extract(self, content: str, remove_from_content: bool = False) -> InlineMetadataResult:
+        """Extract inline metadata from content with comprehensive tracking.
+        
+        Args:
+            content: Content to extract metadata from
+            remove_from_content: Whether to remove found metadata from content
+            
+        Returns:
+            InlineMetadataResult with all found metadata and statistics
+        """
+        if not isinstance(content, str):
+            raise ValueError(f"content must be a string, got {type(content)}")
+        
+        start_time = time.time() if self.enable_performance_tracking else None
+        
+        tags = []
+        metadata = []
+        cleaned_content = content
+        patterns_matched = set()
+        
+        # Line mapping for position-to-line conversion (if enabled)
+        line_map = self._build_line_map(content) if self.enable_line_tracking else None
+        
+        try:
+            # Extract @tag:value patterns
+            for match in self.tag_pattern.finditer(content):
+                tag = InlineTag(
+                    key=match.group(1),
+                    value=match.group(2), 
+                    position=match.start(),
+                    line_number=self._get_line_number(match.start(), line_map) if line_map else None
+                )
+                tags.append(tag)
+                patterns_matched.add("inline_tags")
+                
+                if remove_from_content:
+                    cleaned_content = cleaned_content.replace(match.group(0), "")
+            
+            # Extract [[key:value]] patterns  
+            for match in self.bracket_pattern.finditer(content):
+                tag = InlineTag(
+                    key=match.group(1),
+                    value=match.group(2),
+                    position=match.start(),
+                    line_number=self._get_line_number(match.start(), line_map) if line_map else None
+                )
+                tags.append(tag)
+                patterns_matched.add("bracket_tags")
+                
+                if remove_from_content:
+                    cleaned_content = cleaned_content.replace(match.group(0), "")
+            
+            # Extract {key:value} patterns
+            for match in self.brace_pattern.finditer(content):
+                tag = InlineTag(
+                    key=match.group(1),
+                    value=match.group(2),
+                    position=match.start(),
+                    line_number=self._get_line_number(match.start(), line_map) if line_map else None
+                )
+                tags.append(tag)
+                patterns_matched.add("brace_tags")
+                
+                if remove_from_content:
+                    cleaned_content = cleaned_content.replace(match.group(0), "")
+            
+            # Extract JSON metadata from comments first (to avoid duplicate processing)
+            json_positions = set()
+            for match in self.json_comment_pattern.finditer(content):
+                try:
+                    parsed_json = json.loads(match.group(2))
+                    item = InlineMetadataItem(
+                        key=match.group(1),
+                        value=match.group(2),
+                        position=match.start(),
+                        parsed_value=parsed_json,
+                        line_number=self._get_line_number(match.start(), line_map) if line_map else None,
+                        metadata_type="json_comment"
+                    )
+                    metadata.append(item)
+                    json_positions.add(match.start())
+                    patterns_matched.add("json_comments")
+                    
+                    if remove_from_content:
+                        cleaned_content = cleaned_content.replace(match.group(0), "")
+                        
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse JSON metadata at position %d: %s", match.start(), str(e))
+            
+            # Extract regular comment metadata (skip positions already processed as JSON)
+            for match in self.comment_pattern.finditer(content):
+                if match.start() not in json_positions:
+                    item = InlineMetadataItem(
+                        key=match.group(1),
+                        value=match.group(2).strip(),
+                        position=match.start(),
+                        line_number=self._get_line_number(match.start(), line_map) if line_map else None,
+                        metadata_type="comment"
+                    )
+                    metadata.append(item)
+                    patterns_matched.add("html_comments")
+                    
+                    if remove_from_content:
+                        cleaned_content = cleaned_content.replace(match.group(0), "")
+            
+            # Create result with comprehensive statistics
+            result = InlineMetadataResult(
+                tags=tags,
+                metadata=metadata,
+                cleaned_content=cleaned_content,
+                patterns_matched=patterns_matched
+            )
+            
+            # Add performance tracking
+            if self.enable_performance_tracking:
+                extraction_time = (time.time() - start_time) * 1000
+                result.extraction_time_ms = extraction_time
+                self._update_performance_stats(result, extraction_time)
+            
+            logger.debug("Extracted %d tags and %d metadata items using patterns: %s",
+                        len(tags), len(metadata), patterns_matched)
+            
+            return result
+            
+        except Exception as e:
+            logger.error("Inline metadata extraction failed: %s", str(e))
+            raise
+    
+    def _build_line_map(self, content: str) -> List[int]:
+        """Build a mapping from character positions to line numbers."""
+        line_map = []
+        current_line = 1
+        
+        for i, char in enumerate(content):
+            line_map.append(current_line)
+            if char == '\n':
+                current_line += 1
+        
+        return line_map
+    
+    def _get_line_number(self, position: int, line_map: List[int]) -> int:
+        """Get line number for a character position."""
+        if line_map and 0 <= position < len(line_map):
+            return line_map[position]
+        return 1
+    
+    def _update_performance_stats(self, result: InlineMetadataResult, extraction_time_ms: float):
+        """Update performance tracking statistics."""
+        stats = self._performance_stats
+        stats['total_extractions'] += 1
+        stats['total_items_found'] += result.total_matches
+        
+        # Update running average
+        total = stats['total_extractions']
+        current_avg = stats['avg_extraction_time_ms']
+        stats['avg_extraction_time_ms'] = (
+            (current_avg * (total - 1) + extraction_time_ms) / total
+        )
+        
+        # Track pattern usage
+        for pattern in result.patterns_matched:
+            if pattern in stats['pattern_usage']:
+                stats['pattern_usage'][pattern] += 1
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get performance statistics for monitoring."""
+        return self._performance_stats.copy()
+    
+    def extract_from_multiple_documents(
+        self, 
+        documents: List[Tuple[str, str]], 
+        remove_from_content: bool = False
+    ) -> List[Tuple[str, InlineMetadataResult]]:
+        """Extract metadata from multiple documents efficiently.
+        
+        Args:
+            documents: List of (document_id, content) tuples
+            remove_from_content: Whether to remove metadata from content
+            
+        Returns:
+            List of (document_id, InlineMetadataResult) tuples
+        """
+        results = []
+        start_time = time.time()
+        
+        logger.info("Starting batch extraction for %d documents", len(documents))
+        
+        for doc_id, content in documents:
+            try:
+                result = self.extract(content, remove_from_content)
+                results.append((doc_id, result))
+            except Exception as e:
+                logger.error("Failed to extract metadata from document %s: %s", doc_id, str(e))
+                # Continue with other documents
+                continue
+        
+        batch_time = (time.time() - start_time) * 1000
+        logger.info("Completed batch extraction in %.2f ms, processed %d/%d documents",
+                   batch_time, len(results), len(documents))
+        
+        return results
