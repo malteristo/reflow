@@ -25,6 +25,14 @@ from .local_embedding_service import (
     EmbeddingModelConfig,
 )
 
+from .api_embedding_service import (
+    APIEmbeddingService,
+    APIConfiguration,
+    APIError,
+    RateLimitError,
+    AuthenticationError,
+)
+
 __all__ = [
     "ChromaDBManager",
     "create_chroma_manager", 
@@ -37,4 +45,9 @@ __all__ = [
     "LocalEmbeddingService",
     "ModelCacheManager",
     "EmbeddingModelConfig",
+    "APIEmbeddingService",
+    "APIConfiguration",
+    "APIError",
+    "RateLimitError",
+    "AuthenticationError",
 ]
