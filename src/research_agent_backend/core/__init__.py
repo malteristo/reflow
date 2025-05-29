@@ -33,6 +33,15 @@ from .api_embedding_service import (
     AuthenticationError,
 )
 
+from .model_change_detection import (
+    ModelFingerprint,
+    ModelChangeDetector,
+    ModelChangeEvent,
+    ModelChangeError,
+    FingerprintMismatchError,
+    PersistenceError,
+)
+
 __all__ = [
     "ChromaDBManager",
     "create_chroma_manager", 
@@ -50,4 +59,10 @@ __all__ = [
     "APIError",
     "RateLimitError",
     "AuthenticationError",
+    "ModelFingerprint",
+    "ModelChangeDetector", 
+    "ModelChangeEvent",
+    "ModelChangeError",
+    "FingerprintMismatchError",
+    "PersistenceError",
 ]

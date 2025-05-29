@@ -234,4 +234,66 @@ class LocalEmbeddingService(EmbeddingService):
         Returns:
             True if model is available, False otherwise
         """
-        return hasattr(self, '_model') and self._model is not None 
+        return hasattr(self, '_model') and self._model is not None
+    
+    # Model change detection methods
+    def generate_model_fingerprint(self) -> 'ModelFingerprint':
+        """
+        Generate a model fingerprint for change detection.
+        
+        Returns:
+            ModelFingerprint object containing model metadata and checksum
+        """
+        # Import here to avoid circular imports
+        from .model_change_detection import ModelFingerprint
+        import hashlib
+        
+        model_info = self.get_model_info()
+        
+        # Create a checksum based on model name, dimensions, and other key attributes
+        checksum_data = f"{self._model_name}:{model_info['dimension']}:{model_info['max_seq_length']}"
+        checksum = hashlib.md5(checksum_data.encode()).hexdigest()
+        
+        return ModelFingerprint(
+            model_name=self._model_name,
+            model_type="local",
+            version="1.0.0",  # Could be enhanced to get actual model version
+            checksum=checksum,
+            metadata={
+                "dimension": model_info["dimension"],
+                "max_seq_length": model_info["max_seq_length"],
+                "library": "sentence-transformers",
+                "cache_dir": self._cache_dir,
+                "device": self._device
+            }
+        )
+    
+    def check_model_changed(self) -> bool:
+        """
+        Check if the model has changed since last check.
+        
+        Returns:
+            True if model has changed, False otherwise
+        """
+        from .model_change_detection import ModelChangeDetector
+        
+        detector = ModelChangeDetector()
+        current_fingerprint = self.generate_model_fingerprint()
+        
+        changed = detector.detect_change(current_fingerprint)
+        
+        if changed:
+            # Register the new fingerprint
+            detector.register_model(current_fingerprint)
+        
+        return changed
+    
+    def invalidate_cache_on_change(self):
+        """
+        Invalidate model cache if model has changed.
+        """
+        if self.check_model_changed():
+            self._cache_manager.clear_cache()
+            logger.info(f"Model cache cleared due to change detection for {self._model_name}")
+        else:
+            logger.debug(f"No model change detected for {self._model_name}, cache preserved") 

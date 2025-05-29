@@ -878,4 +878,77 @@ class APIEmbeddingService(EmbeddingService):
                     return str(error_data["error"])
             return None
         except:
-            return None 
+            return None
+    
+    # Model change detection methods
+    def generate_model_fingerprint(self) -> 'ModelFingerprint':
+        """
+        Generate a model fingerprint for change detection.
+        
+        Returns:
+            ModelFingerprint object containing model metadata and checksum
+        """
+        # Import here to avoid circular imports
+        from .model_change_detection import ModelFingerprint
+        import hashlib
+        
+        # Create a checksum based on config parameters that affect model behavior
+        checksum_data = (
+            f"{self.config.provider}:{self.config.model_name}:{self.config.base_url}:"
+            f"{self.config.embedding_dimension}:{self.config.max_batch_size}"
+        )
+        checksum = hashlib.md5(checksum_data.encode()).hexdigest()
+        
+        # Get additional model info if available
+        try:
+            model_info = self.get_model_info()
+            dimension = model_info.get("dimension")
+        except Exception:
+            dimension = self.config.embedding_dimension
+        
+        return ModelFingerprint(
+            model_name=self.config.model_name,
+            model_type="api",
+            version="1.0.0",  # Could be enhanced to get actual API version
+            checksum=checksum,
+            metadata={
+                "provider": self.config.provider,
+                "base_url": self.config.base_url,
+                "dimension": dimension,
+                "max_batch_size": self.config.max_batch_size,
+                "max_retries": self.config.max_retries,
+                "timeout": self.config.timeout
+            }
+        )
+    
+    def check_model_changed(self) -> bool:
+        """
+        Check if the model configuration has changed since last check.
+        
+        Returns:
+            True if model configuration has changed, False otherwise
+        """
+        from .model_change_detection import ModelChangeDetector
+        
+        detector = ModelChangeDetector()
+        current_fingerprint = self.generate_model_fingerprint()
+        
+        changed = detector.detect_change(current_fingerprint)
+        
+        if changed:
+            # Register the new fingerprint
+            detector.register_model(current_fingerprint)
+        
+        return changed
+    
+    def invalidate_cache_on_change(self):
+        """
+        Invalidate any cached data if model configuration has changed.
+        
+        For API services, this mainly clears the cached embedding dimension.
+        """
+        if self.check_model_changed():
+            self._cached_dimension = None
+            logger.info(f"API model cache cleared due to change detection for {self.config.model_name}")
+        else:
+            logger.debug(f"No model change detected for {self.config.model_name}, cache preserved") 
