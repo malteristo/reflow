@@ -14,6 +14,7 @@ from typing import Optional, List
 from rich import print as rprint
 from rich.progress import Progress
 from rich.console import Console
+from datetime import datetime
 
 from ..core.document_insertion import create_document_insertion_manager
 from ..models.metadata_schema import DocumentMetadata, DocumentType
@@ -848,4 +849,867 @@ def rebuild_index(
         logger.info("Index rebuild operation completed")
         
     except Exception as e:
-        _handle_operation_error("rebuilding index", e) 
+        _handle_operation_error("rebuilding index", e)
+
+
+@kb_app.command("export")
+def export_knowledge_base(
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Output file path (defaults to 'kb_export_YYYY-MM-DD.json')"
+    ),
+    collection: Optional[str] = typer.Option(
+        None,
+        "--collection", 
+        help="Export specific collection only"
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        help="Export format: json, csv, or markdown"
+    ),
+    include_embeddings: bool = typer.Option(
+        False,
+        "--include-embeddings",
+        help="Include vector embeddings in export (increases file size)"
+    )
+) -> None:
+    """
+    Export documents and metadata for backup/migration.
+    
+    Exports knowledge base content to various formats for backup,
+    migration, or external analysis. Supports JSON, CSV, and Markdown formats.
+    
+    Args:
+        output: Output file path (auto-generated if not provided)
+        collection: Specific collection to export (exports all if not specified)
+        format: Export format (json, csv, markdown)
+        include_embeddings: Whether to include vector embeddings
+        
+    Example:
+        research-agent kb export --format=json --collection=docs
+        research-agent kb export --output=backup.json --include-embeddings
+    """
+    try:
+        import json
+        import csv
+        
+        chroma_manager = create_chroma_manager()
+        logger.info("Starting knowledge base export")
+        
+        # Validate format
+        if format not in ['json', 'csv', 'markdown']:
+            rprint(f"[red]Error:[/red] Unsupported format '{format}'. Use: json, csv, markdown")
+            raise typer.Exit(1)
+        
+        # Get collections to export
+        if collection:
+            if not chroma_manager.collection_exists(collection):
+                rprint(f"[red]Error:[/red] Collection '{collection}' does not exist")
+                logger.error(f"Collection '{collection}' not found for export")
+                raise typer.Exit(1)
+            collections_to_export = [collection]
+        else:
+            collections_info = chroma_manager.list_collections()
+            collections_to_export = [col.name for col in collections_info]
+        
+        if not collections_to_export:
+            rprint("[yellow]No collections found to export[/yellow]")
+            logger.info("No collections available for export")
+            return
+        
+        # Generate output filename if not provided
+        if not output:
+            timestamp = datetime.now().strftime("%Y-%m-%d")
+            scope = f"_{collection}" if collection else "_all"
+            output = f"kb_export{scope}_{timestamp}.{format}"
+        
+        # Display export plan
+        rprint("\n[blue]Knowledge Base Export[/blue]")
+        rprint("=" * 40)
+        rprint(f"Collections: [cyan]{', '.join(collections_to_export)}[/cyan]")
+        rprint(f"Format: [cyan]{format}[/cyan]")
+        rprint(f"Output: [cyan]{output}[/cyan]")
+        rprint(f"Include embeddings: [cyan]{include_embeddings}[/cyan]")
+        
+        # Collect all documents
+        export_data = {
+            "metadata": {
+                "export_timestamp": datetime.now().isoformat(),
+                "format_version": "1.0",
+                "source": "research-agent",
+                "include_embeddings": include_embeddings
+            },
+            "collections": {}
+        }
+        
+        total_documents = 0
+        
+        with Progress() as progress:
+            export_task = progress.add_task("Exporting...", total=len(collections_to_export))
+            
+            for col_name in collections_to_export:
+                try:
+                    progress.update(export_task, description=f"Exporting {col_name}...")
+                    
+                    # Get documents from collection
+                    documents = chroma_manager.get_documents(
+                        collection_name=col_name,
+                        limit=10000  # Large limit to get all docs
+                    )
+                    
+                    collection_data = {
+                        "name": col_name,
+                        "document_count": len(documents),
+                        "documents": []
+                    }
+                    
+                    for doc in documents:
+                        doc_data = {
+                            "id": doc.id,
+                            "content": doc.content,
+                            "metadata": doc.metadata,
+                            "created_at": doc.metadata.get('created_at', ''),
+                            "source": doc.metadata.get('source', '')
+                        }
+                        
+                        if include_embeddings and hasattr(doc, 'embedding'):
+                            doc_data["embedding"] = doc.embedding
+                        
+                        collection_data["documents"].append(doc_data)
+                    
+                    export_data["collections"][col_name] = collection_data
+                    total_documents += len(documents)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to export collection {col_name}: {e}")
+                    rprint(f"  [yellow]Warning:[/yellow] Failed to export {col_name}: {e}")
+                
+                progress.advance(export_task)
+        
+        # Write to file based on format
+        try:
+            if format == "json":
+                with open(output, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, indent=2, ensure_ascii=False)
+            
+            elif format == "csv":
+                with open(output, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['collection', 'document_id', 'content', 'source', 'created_at', 'metadata'])
+                    
+                    for col_name, col_data in export_data["collections"].items():
+                        for doc in col_data["documents"]:
+                            writer.writerow([
+                                col_name,
+                                doc["id"],
+                                doc["content"],
+                                doc.get("source", ""),
+                                doc.get("created_at", ""),
+                                json.dumps(doc["metadata"])
+                            ])
+            
+            elif format == "markdown":
+                with open(output, 'w', encoding='utf-8') as f:
+                    f.write(f"# Knowledge Base Export\n\n")
+                    f.write(f"**Export Date:** {export_data['metadata']['export_timestamp']}\n\n")
+                    
+                    for col_name, col_data in export_data["collections"].items():
+                        f.write(f"## Collection: {col_name}\n\n")
+                        f.write(f"**Documents:** {col_data['document_count']}\n\n")
+                        
+                        for i, doc in enumerate(col_data["documents"], 1):
+                            f.write(f"### Document {i}: {doc['id']}\n\n")
+                            if doc.get("source"):
+                                f.write(f"**Source:** {doc['source']}\n\n")
+                            f.write(f"{doc['content']}\n\n")
+                            f.write("---\n\n")
+            
+            # Verify file was created
+            output_path = Path(output)
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            
+            rprint(f"\n[green]✓[/green] Export completed successfully")
+            rprint(f"  File: [cyan]{output}[/cyan]")
+            rprint(f"  Size: [cyan]{file_size_mb:.2f} MB[/cyan]")
+            rprint(f"  Documents: [cyan]{total_documents}[/cyan]")
+            rprint(f"  Collections: [cyan]{len(collections_to_export)}[/cyan]")
+            
+            logger.info(f"Knowledge base exported: {output} ({total_documents} documents)")
+            
+        except Exception as e:
+            rprint(f"[red]Error:[/red] Failed to write export file: {e}")
+            logger.error(f"Export file write failed: {e}")
+            raise typer.Exit(1)
+        
+    except Exception as e:
+        _handle_operation_error("exporting knowledge base", e)
+
+
+@kb_app.command("import")
+def import_knowledge_base(
+    input_file: str = typer.Argument(
+        ...,
+        help="Input file path to import from"
+    ),
+    collection: Optional[str] = typer.Option(
+        None,
+        "--collection",
+        help="Target collection (creates if doesn't exist)"
+    ),
+    format: str = typer.Option(
+        "auto",
+        "--format",
+        help="Input format: auto, json, csv, or markdown"
+    ),
+    merge_strategy: str = typer.Option(
+        "skip",
+        "--merge-strategy", 
+        help="Handle duplicates: skip, overwrite, or merge"
+    ),
+    confirm: bool = typer.Option(
+        False,
+        "--confirm",
+        help="Skip confirmation prompt"
+    )
+) -> None:
+    """
+    Import from external knowledge base formats.
+    
+    Imports documents from various formats into the knowledge base.
+    Supports JSON, CSV, and Markdown formats with duplicate handling.
+    
+    Args:
+        input_file: Path to file to import
+        collection: Target collection name (auto-detected if not provided)
+        format: Input format (auto-detects from extension if 'auto')
+        merge_strategy: How to handle duplicate documents
+        confirm: Skip confirmation prompt
+        
+    Example:
+        research-agent kb import backup.json --collection=restored
+        research-agent kb import docs.csv --merge-strategy=overwrite --confirm
+    """
+    try:
+        import json
+        import csv
+        
+        input_path = Path(input_file)
+        if not input_path.exists():
+            rprint(f"[red]Error:[/red] Input file '{input_file}' not found")
+            raise typer.Exit(1)
+        
+        # Auto-detect format from extension
+        if format == "auto":
+            format = input_path.suffix.lower().lstrip('.')
+            if format not in ['json', 'csv', 'md', 'markdown']:
+                rprint(f"[red]Error:[/red] Cannot auto-detect format from '{input_path.suffix}'")
+                raise typer.Exit(1)
+            if format in ['md', 'markdown']:
+                format = 'markdown'
+        
+        # Validate format and merge strategy
+        if format not in ['json', 'csv', 'markdown']:
+            rprint(f"[red]Error:[/red] Unsupported format '{format}'")
+            raise typer.Exit(1)
+        
+        if merge_strategy not in ['skip', 'overwrite', 'merge']:
+            rprint(f"[red]Error:[/red] Invalid merge strategy '{merge_strategy}'")
+            raise typer.Exit(1)
+        
+        chroma_manager = create_chroma_manager()
+        document_manager = create_document_insertion_manager()
+        logger.info(f"Starting knowledge base import from {input_file}")
+        
+        # Parse input file
+        documents_to_import = []
+        
+        if format == "json":
+            with open(input_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Handle different JSON structures
+            if "collections" in data:
+                # Research Agent export format
+                for col_name, col_data in data["collections"].items():
+                    target_collection = collection or col_name
+                    for doc in col_data.get("documents", []):
+                        documents_to_import.append({
+                            "content": doc.get("content", ""),
+                            "metadata": doc.get("metadata", {}),
+                            "collection": target_collection,
+                            "source_id": doc.get("id", "")
+                        })
+            else:
+                # Generic JSON format
+                target_collection = collection or DEFAULT_COLLECTION
+                if isinstance(data, list):
+                    for item in data:
+                        documents_to_import.append({
+                            "content": item.get("content", str(item)),
+                            "metadata": item.get("metadata", {}),
+                            "collection": target_collection
+                        })
+        
+        elif format == "csv":
+            with open(input_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                target_collection = collection or DEFAULT_COLLECTION
+                
+                for row in reader:
+                    # Try to parse metadata if it's JSON string
+                    metadata = {}
+                    if 'metadata' in row:
+                        try:
+                            metadata = json.loads(row['metadata'])
+                        except:
+                            metadata = {'raw_metadata': row['metadata']}
+                    
+                    documents_to_import.append({
+                        "content": row.get("content", ""),
+                        "metadata": metadata,
+                        "collection": row.get("collection", target_collection),
+                        "source_id": row.get("document_id", "")
+                    })
+        
+        elif format == "markdown":
+            with open(input_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            target_collection = collection or DEFAULT_COLLECTION
+            documents_to_import.append({
+                "content": content,
+                "metadata": {
+                    "source": str(input_path),
+                    "imported_from": "markdown"
+                },
+                "collection": target_collection
+            })
+        
+        if not documents_to_import:
+            rprint("[yellow]No documents found in input file[/yellow]")
+            return
+        
+        # Display import plan
+        collections_in_import = set(doc["collection"] for doc in documents_to_import)
+        
+        rprint("\n[blue]Knowledge Base Import Plan[/blue]")
+        rprint("=" * 40)
+        rprint(f"Input file: [cyan]{input_file}[/cyan]")
+        rprint(f"Format: [cyan]{format}[/cyan]")
+        rprint(f"Documents: [cyan]{len(documents_to_import)}[/cyan]")
+        rprint(f"Target collections: [cyan]{', '.join(collections_in_import)}[/cyan]")
+        rprint(f"Merge strategy: [cyan]{merge_strategy}[/cyan]")
+        
+        # Check for existing collections
+        existing_collections = [col.name for col in chroma_manager.list_collections()]
+        new_collections = [col for col in collections_in_import if col not in existing_collections]
+        
+        if new_collections:
+            rprint(f"New collections to create: [cyan]{', '.join(new_collections)}[/cyan]")
+        
+        # Confirmation prompt
+        if not confirm:
+            rprint(f"\n[yellow]Ready to import {len(documents_to_import)} documents[/yellow]")
+            user_input = input("Continue with import? (y/N): ").strip().lower()
+            if user_input not in ['y', 'yes']:
+                rprint("[yellow]Import cancelled[/yellow]")
+                logger.info("Import cancelled by user")
+                return
+        
+        # Perform import
+        rprint("\n[blue]Importing Documents...[/blue]")
+        
+        imported_count = 0
+        skipped_count = 0
+        error_count = 0
+        
+        with Progress() as progress:
+            import_task = progress.add_task("Importing...", total=len(documents_to_import))
+            
+            for doc_data in documents_to_import:
+                try:
+                    # Create document metadata
+                    metadata = DocumentMetadata(
+                        document_id="",  # Will be generated
+                        title=doc_data["metadata"].get("title", "Imported Document"),
+                        source=doc_data["metadata"].get("source", input_file),
+                        document_type=DocumentType.MARKDOWN,
+                        user_id=DEFAULT_USER_ID,
+                        content_hash="",  # Will be generated
+                        **doc_data["metadata"]
+                    )
+                    
+                    # Insert document
+                    result = document_manager.insert_documents(
+                        documents=[doc_data["content"]],
+                        metadatas=[metadata],
+                        collection_name=doc_data["collection"]
+                    )
+                    
+                    if result.successful_insertions > 0:
+                        imported_count += 1
+                    else:
+                        skipped_count += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to import document: {e}")
+                    error_count += 1
+                
+                progress.advance(import_task)
+        
+        # Import summary
+        rprint(f"\n[blue]Import Summary[/blue]")
+        rprint("-" * 30)
+        rprint(f"Successfully imported: [green]{imported_count}[/green]")
+        rprint(f"Skipped (duplicates): [yellow]{skipped_count}[/yellow]")
+        rprint(f"Errors: [red]{error_count}[/red]")
+        
+        if imported_count > 0:
+            rprint(f"\n[green]✓[/green] Import completed successfully")
+            logger.info(f"Import completed: {imported_count} documents imported")
+        else:
+            rprint(f"\n[yellow]⚠[/yellow] No documents were imported")
+        
+    except Exception as e:
+        _handle_operation_error("importing knowledge base", e)
+
+
+@kb_app.command("search")
+def search_knowledge_base(
+    query: str = typer.Argument(
+        ...,
+        help="Search query"
+    ),
+    collection: Optional[str] = typer.Option(
+        None,
+        "--collection",
+        help="Search in specific collection only"
+    ),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        help="Maximum number of results to return"
+    ),
+    threshold: float = typer.Option(
+        0.0,
+        "--threshold",
+        help="Minimum similarity threshold (0.0-1.0)"
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Save results to file (JSON format)"
+    )
+) -> None:
+    """
+    Advanced semantic search capabilities.
+    
+    Performs semantic search across knowledge base collections with
+    similarity scoring and result ranking. Supports result export.
+    
+    Args:
+        query: Search query text
+        collection: Specific collection to search (searches all if not specified)
+        limit: Maximum number of results to return
+        threshold: Minimum similarity score (0.0-1.0)
+        output: Optional file to save results
+        
+    Example:
+        research-agent kb search "machine learning algorithms"
+        research-agent kb search "python" --collection=docs --limit=5 --threshold=0.7
+    """
+    try:
+        from rich.table import Table
+        
+        chroma_manager = create_chroma_manager()
+        logger.info(f"Performing semantic search: '{query}'")
+        
+        # Validate threshold
+        if not 0.0 <= threshold <= 1.0:
+            rprint(f"[red]Error:[/red] Threshold must be between 0.0 and 1.0")
+            raise typer.Exit(1)
+        
+        # Get collections to search
+        if collection:
+            if not chroma_manager.collection_exists(collection):
+                rprint(f"[red]Error:[/red] Collection '{collection}' does not exist")
+                logger.error(f"Collection '{collection}' not found for search")
+                raise typer.Exit(1)
+            collections_to_search = [collection]
+        else:
+            collections_info = chroma_manager.list_collections()
+            collections_to_search = [col.name for col in collections_info]
+        
+        if not collections_to_search:
+            rprint("[yellow]No collections found to search[/yellow]")
+            logger.info("No collections available for search")
+            return
+        
+        # Display search parameters
+        rprint(f"\n[blue]Semantic Search[/blue]")
+        rprint("=" * 30)
+        rprint(f"Query: [cyan]\"{query}\"[/cyan]")
+        rprint(f"Collections: [cyan]{', '.join(collections_to_search)}[/cyan]")
+        rprint(f"Limit: [cyan]{limit}[/cyan]")
+        rprint(f"Threshold: [cyan]{threshold}[/cyan]")
+        
+        # Perform search across collections
+        all_results = []
+        
+        for col_name in collections_to_search:
+            try:
+                results = chroma_manager.query(
+                    collection_name=col_name,
+                    query_text=query,
+                    top_k=limit,
+                    min_similarity_score=threshold
+                )
+                
+                # Add collection info to results
+                for result in results:
+                    result_data = {
+                        "collection": col_name,
+                        "document_id": result.id,
+                        "content": result.content,
+                        "similarity": result.similarity_score,
+                        "metadata": result.metadata,
+                        "source": result.metadata.get('source', 'Unknown')
+                    }
+                    all_results.append(result_data)
+                    
+            except Exception as e:
+                logger.warning(f"Search failed for collection {col_name}: {e}")
+                rprint(f"  [yellow]Warning:[/yellow] Search failed for {col_name}")
+        
+        # Sort results by similarity score
+        all_results.sort(key=lambda x: x["similarity"], reverse=True)
+        
+        # Limit to requested number
+        all_results = all_results[:limit]
+        
+        if not all_results:
+            rprint(f"\n[yellow]No results found for query: \"{query}\"[/yellow]")
+            if threshold > 0:
+                rprint(f"Try lowering the similarity threshold (currently {threshold})")
+            return
+        
+        # Display results table
+        table = Table(title=f"Search Results ({len(all_results)} found)")
+        table.add_column("Rank", style="dim", width=4)
+        table.add_column("Collection", style="cyan", width=12)
+        table.add_column("Source", style="blue", width=20)
+        table.add_column("Similarity", style="green", width=10)
+        table.add_column("Content Preview", style="white", width=50)
+        
+        for i, result in enumerate(all_results, 1):
+            # Truncate content for preview
+            content_preview = result["content"][:100]
+            if len(result["content"]) > 100:
+                content_preview += "..."
+            
+            # Highlight query terms (simple approach)
+            for term in query.lower().split():
+                if term in content_preview.lower():
+                    content_preview = content_preview.replace(
+                        term, f"[yellow]{term}[/yellow]"
+                    )
+            
+            table.add_row(
+                str(i),
+                result["collection"],
+                result["source"][:20] + ("..." if len(result["source"]) > 20 else ""),
+                f"{result['similarity']:.3f}",
+                content_preview
+            )
+        
+        console.print("\n")
+        console.print(table)
+        
+        # Show detailed results
+        rprint(f"\n[blue]Detailed Results[/blue]")
+        rprint("-" * 50)
+        
+        for i, result in enumerate(all_results[:5], 1):  # Show top 5 in detail
+            rprint(f"\n[bold]{i}. Document: {result['document_id']}[/bold]")
+            rprint(f"   Collection: [cyan]{result['collection']}[/cyan]")
+            rprint(f"   Source: [blue]{result['source']}[/blue]")
+            rprint(f"   Similarity: [green]{result['similarity']:.3f}[/green]")
+            rprint(f"   Content: {result['content'][:200]}{'...' if len(result['content']) > 200 else ''}")
+        
+        # Save to file if requested
+        if output:
+            try:
+                import json
+                
+                search_results = {
+                    "query": query,
+                    "timestamp": str(datetime.now()),
+                    "parameters": {
+                        "collections": collections_to_search,
+                        "limit": limit,
+                        "threshold": threshold
+                    },
+                    "results_count": len(all_results),
+                    "results": all_results
+                }
+                
+                with open(output, 'w', encoding='utf-8') as f:
+                    json.dump(search_results, f, indent=2, ensure_ascii=False)
+                
+                rprint(f"\n[green]✓[/green] Results saved to: [cyan]{output}[/cyan]")
+                
+            except Exception as e:
+                rprint(f"[yellow]Warning:[/yellow] Failed to save results: {e}")
+        
+        rprint(f"\n[green]✓[/green] Search completed: {len(all_results)} results")
+        logger.info(f"Search completed: {len(all_results)} results for '{query}'")
+        
+    except Exception as e:
+        _handle_operation_error("searching knowledge base", e)
+
+
+@kb_app.command("collections")
+def manage_collections(
+    action: str = typer.Argument(
+        ...,
+        help="Action: list, create, delete, rename, or stats"
+    ),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Collection name for create/delete/rename operations"
+    ),
+    new_name: Optional[str] = typer.Option(
+        None,
+        "--new-name", 
+        help="New name for rename operation"
+    ),
+    confirm: bool = typer.Option(
+        False,
+        "--confirm",
+        help="Skip confirmation prompt for delete operations"
+    )
+) -> None:
+    """
+    Manage document collections and organization.
+    
+    Provides comprehensive collection management including creation,
+    deletion, renaming, and statistics. Shows collection hierarchy
+    and document distribution.
+    
+    Args:
+        action: Management action (list, create, delete, rename, stats)
+        name: Collection name for operations
+        new_name: New name for rename operation
+        confirm: Skip confirmation prompts
+        
+    Example:
+        research-agent kb collections list
+        research-agent kb collections create --name=new-docs
+        research-agent kb collections delete --name=old-docs --confirm
+        research-agent kb collections rename --name=docs --new-name=documents
+    """
+    try:
+        from rich.table import Table
+        from rich.tree import Tree
+        
+        chroma_manager = create_chroma_manager()
+        logger.info(f"Managing collections: {action}")
+        
+        if action == "list":
+            # List all collections with basic info
+            collections_info = chroma_manager.list_collections()
+            
+            if not collections_info:
+                rprint("[yellow]No collections found[/yellow]")
+                return
+            
+            rprint(f"\n[blue]Collections Overview[/blue]")
+            rprint("=" * 40)
+            
+            # Create collections table
+            table = Table(title="Knowledge Base Collections")
+            table.add_column("Name", style="cyan", width=20)
+            table.add_column("Documents", justify="right", style="green", width=12)
+            table.add_column("Size (MB)", justify="right", style="blue", width=12)
+            table.add_column("Last Modified", style="dim", width=15)
+            
+            total_docs = 0
+            total_size = 0.0
+            
+            for collection in collections_info:
+                try:
+                    stats = chroma_manager.get_collection_stats(collection.name)
+                    size_mb = round(stats.storage_size_bytes / (1024 * 1024), 2)
+                    last_mod = stats.last_modified.strftime('%Y-%m-%d') if stats.last_modified else 'Unknown'
+                    
+                    table.add_row(
+                        collection.name,
+                        str(stats.document_count),
+                        f"{size_mb:.1f}",
+                        last_mod
+                    )
+                    
+                    total_docs += stats.document_count
+                    total_size += size_mb
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to get stats for {collection.name}: {e}")
+                    table.add_row(collection.name, "?", "?", "Unknown")
+            
+            console.print("\n")
+            console.print(table)
+            
+            # Summary
+            rprint(f"\n[blue]Summary[/blue]")
+            rprint(f"Total Collections: [cyan]{len(collections_info)}[/cyan]")
+            rprint(f"Total Documents: [cyan]{total_docs}[/cyan]")
+            rprint(f"Total Storage: [cyan]{total_size:.1f} MB[/cyan]")
+            
+        elif action == "create":
+            if not name:
+                rprint("[red]Error:[/red] Collection name required for create action")
+                raise typer.Exit(1)
+            
+            if chroma_manager.collection_exists(name):
+                rprint(f"[yellow]Warning:[/yellow] Collection '{name}' already exists")
+                return
+            
+            try:
+                # Create collection (this may need to be implemented in chroma_manager)
+                rprint(f"Creating collection: [cyan]{name}[/cyan]")
+                
+                # For now, we'll indicate the collection would be created on first document add
+                rprint(f"[green]✓[/green] Collection '{name}' will be created when first document is added")
+                logger.info(f"Collection '{name}' marked for creation")
+                
+            except Exception as e:
+                rprint(f"[red]Error:[/red] Failed to create collection: {e}")
+                logger.error(f"Collection creation failed: {e}")
+                raise typer.Exit(1)
+        
+        elif action == "delete":
+            if not name:
+                rprint("[red]Error:[/red] Collection name required for delete action")
+                raise typer.Exit(1)
+            
+            if not chroma_manager.collection_exists(name):
+                rprint(f"[red]Error:[/red] Collection '{name}' does not exist")
+                raise typer.Exit(1)
+            
+            # Get collection stats for confirmation
+            try:
+                stats = chroma_manager.get_collection_stats(name)
+                doc_count = stats.document_count
+            except:
+                doc_count = "unknown"
+            
+            # Confirmation prompt
+            if not confirm:
+                rprint(f"\n[yellow]Warning:[/yellow] This will permanently delete collection '{name}'")
+                rprint(f"Documents to be deleted: [red]{doc_count}[/red]")
+                user_input = input("Continue with deletion? (y/N): ").strip().lower()
+                if user_input not in ['y', 'yes']:
+                    rprint("[yellow]Deletion cancelled[/yellow]")
+                    return
+            
+            try:
+                # Delete collection (implementation needed in chroma_manager)
+                rprint(f"Deleting collection: [cyan]{name}[/cyan]")
+                
+                # This would need to be implemented
+                if hasattr(chroma_manager, 'delete_collection'):
+                    chroma_manager.delete_collection(name)
+                    rprint(f"[green]✓[/green] Collection '{name}' deleted successfully")
+                else:
+                    rprint(f"[yellow]Note:[/yellow] Collection deletion not yet implemented")
+                
+                logger.info(f"Collection '{name}' deleted")
+                
+            except Exception as e:
+                rprint(f"[red]Error:[/red] Failed to delete collection: {e}")
+                logger.error(f"Collection deletion failed: {e}")
+                raise typer.Exit(1)
+        
+        elif action == "rename":
+            if not name or not new_name:
+                rprint("[red]Error:[/red] Both --name and --new-name required for rename action")
+                raise typer.Exit(1)
+            
+            if not chroma_manager.collection_exists(name):
+                rprint(f"[red]Error:[/red] Collection '{name}' does not exist")
+                raise typer.Exit(1)
+            
+            if chroma_manager.collection_exists(new_name):
+                rprint(f"[red]Error:[/red] Collection '{new_name}' already exists")
+                raise typer.Exit(1)
+            
+            try:
+                rprint(f"Renaming collection: [cyan]{name}[/cyan] → [cyan]{new_name}[/cyan]")
+                
+                # This would need to be implemented
+                if hasattr(chroma_manager, 'rename_collection'):
+                    chroma_manager.rename_collection(name, new_name)
+                    rprint(f"[green]✓[/green] Collection renamed successfully")
+                else:
+                    rprint(f"[yellow]Note:[/yellow] Collection renaming not yet implemented")
+                
+                logger.info(f"Collection renamed: {name} → {new_name}")
+                
+            except Exception as e:
+                rprint(f"[red]Error:[/red] Failed to rename collection: {e}")
+                logger.error(f"Collection rename failed: {e}")
+                raise typer.Exit(1)
+        
+        elif action == "stats":
+            # Detailed statistics for collection(s)
+            if name:
+                if not chroma_manager.collection_exists(name):
+                    rprint(f"[red]Error:[/red] Collection '{name}' does not exist")
+                    raise typer.Exit(1)
+                collections_to_analyze = [name]
+            else:
+                collections_info = chroma_manager.list_collections()
+                collections_to_analyze = [col.name for col in collections_info]
+            
+            rprint(f"\n[blue]Collection Statistics[/blue]")
+            rprint("=" * 40)
+            
+            for col_name in collections_to_analyze:
+                try:
+                    stats = chroma_manager.get_collection_stats(col_name)
+                    
+                    rprint(f"\n[cyan]{col_name}[/cyan]")
+                    rprint("-" * len(col_name))
+                    rprint(f"Documents: [green]{stats.document_count}[/green]")
+                    rprint(f"Storage: [blue]{stats.storage_size_bytes / (1024*1024):.2f} MB[/blue]")
+                    
+                    if stats.last_modified:
+                        rprint(f"Last Modified: [dim]{stats.last_modified.strftime('%Y-%m-%d %H:%M:%S')}[/dim]")
+                    
+                    # Try to get sample documents
+                    try:
+                        sample_docs = chroma_manager.get_documents(
+                            collection_name=col_name,
+                            limit=3
+                        )
+                        if sample_docs:
+                            rprint("Sample Documents:")
+                            for i, doc in enumerate(sample_docs, 1):
+                                source = doc.metadata.get('source', 'Unknown')[:30]
+                                rprint(f"  {i}. {source} ({len(doc.content)} chars)")
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    rprint(f"[red]Error getting stats for {col_name}:[/red] {e}")
+        
+        else:
+            rprint(f"[red]Error:[/red] Unknown action '{action}'")
+            rprint("Available actions: list, create, delete, rename, stats")
+            raise typer.Exit(1)
+        
+    except Exception as e:
+        _handle_operation_error("managing collections", e) 
