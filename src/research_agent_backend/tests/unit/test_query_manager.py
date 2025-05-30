@@ -24,6 +24,8 @@ from research_agent_backend.core.query_manager import (
     QueryOptimizer,
     QueryCache,
     BatchQueryProcessor,
+)
+from research_agent_backend.exceptions.query_exceptions import (
     QueryManagerError,
     QueryOptimizationError,
     PaginationError,
