@@ -83,6 +83,13 @@ from .metadata import (
     MetadataExtractor
 )
 
+# Model change detection integration
+from .model_integration import (
+    ModelChangeIntegration,
+    ChunkingPipelineWithModelDetection,
+    ModelAwareChunkResult
+)
+
 # Public API - maintains 100% backward compatibility
 __all__ = [
     # Core parsing
@@ -129,5 +136,10 @@ __all__ = [
     "MetadataQuery",
     "DocumentMetadata",
     "MetadataExtractionResult",
-    "MetadataExtractor"
+    "MetadataExtractor",
+    
+    # Model change detection
+    "ModelChangeIntegration",
+    "ChunkingPipelineWithModelDetection",
+    "ModelAwareChunkResult"
 ] 

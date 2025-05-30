@@ -64,7 +64,7 @@ class DocumentProcessingPipeline:
         # Check vector store connection before processing
         try:
             health_status = self.vector_store.health_check()
-            if not health_status.get("status") == "healthy":
+            if health_status.status != "healthy":
                 # Return error results for all documents if connection fails
                 for i, doc in enumerate(documents):
                     error_result = ProcessingResult(
