@@ -173,15 +173,28 @@ class TestConfigManagerErrorScenarios:
         import tempfile
         import json
         
-        schema_path = project_root / "config" / "schema" / "config_schema.json"
-        if not schema_path.exists():
-            pytest.skip("Project schema file not found")
+        # Create a minimal valid schema first
+        schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "version": {"type": "string"},
+                "embedding_model": {"type": "object"}
+            },
+            "required": ["version"],
+            "additionalProperties": False
+        }
         
-        # Create temporary invalid config
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        # Create temporary schema file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_file:
+            json.dump(schema, schema_file)
+            temp_schema_path = schema_file.name
+        
+        # Create temporary invalid config - missing required 'version' field
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as config_file:
             invalid_config = {"completely": "invalid", "structure": True}
-            json.dump(invalid_config, f)
-            temp_config_path = f.name
+            json.dump(invalid_config, config_file)
+            temp_config_path = config_file.name
         
         try:
             config_manager = ConfigManager(
@@ -190,10 +203,15 @@ class TestConfigManagerErrorScenarios:
                 load_env=False
             )
             
+            # Force load the schema and validate against it
             with pytest.raises(ConfigurationValidationError):
-                config_manager.load_config(validate=True)
+                config_manager.validate_config(
+                    config=invalid_config,
+                    schema_file=temp_schema_path
+                )
         finally:
             os.unlink(temp_config_path)
+            os.unlink(temp_schema_path)
     
     def test_environment_variable_error_handling(self, project_root):
         """Test environment variable error handling."""

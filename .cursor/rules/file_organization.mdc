@@ -1,0 +1,297 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Adaptive File Organization and Modularity
+
+## **Adaptive Organization Philosophy**
+
+- **Function Over Form**: Organize by what code does, not where it "should" go according to rigid structure
+- **Emergent Architecture**: Let optimal organization emerge from actual code patterns and usage
+- **Refactor When Needed**: Reorganize when current structure inhibits development or understanding
+- **Document Decisions**: Track organizational choices and their reasoning for future reference
+
+## **File Size Management**
+
+- **File Size Limits:**
+  - **Hard Limit**: No single file should exceed 1,000 lines
+  - **Soft Limit**: Files over 500 lines should be evaluated for splitting
+  - **Warning Threshold**: Files over 300 lines require architectural review
+
+- **File Size Checkpoints:**
+  ```python
+  # ✅ DO: Check file size during development
+  # If file approaches 300 lines, consider:
+  # 1. Can classes be extracted to separate modules?
+  # 2. Can utility functions be moved to utils/?
+  # 3. Can related functionality be grouped into submodules?
+  
+  # ❌ DON'T: Continue adding to files over 500 lines without refactoring
+  ```
+
+## **Adaptive Organization Principles**
+
+- **Responsibility-Based Grouping:**
+  - Group code by what it does, not by type
+  - Related functionality stays together even if it spans "layers"
+  - Split when responsibilities become clear and distinct
+
+- **Natural Emergence:**
+  ```python
+  # ✅ DO: Let structure emerge from actual usage patterns
+  # Example: If document processing naturally splits into:
+  # - Parsing logic (300+ lines)
+  # - Chunking logic (400+ lines)  
+  # - Metadata extraction (200+ lines)
+  # Then create separate modules for each
+
+  # ❌ DON'T: Force code into predefined "service/model/util" boxes
+  # if it doesn't naturally fit that way
+  ```
+
+- **Flexible Hierarchy:**
+  ```
+  # ✅ ADAPTIVE: Structure grows with complexity
+  src/module/
+  ├── __init__.py              # Public API exports
+  ├── simple_component.py      # Small, focused module (< 300 lines)
+  └── complex_component/       # Complex component broken down
+      ├── __init__.py          # Component public API
+      ├── core_logic.py        # Main logic (< 500 lines)
+      ├── helpers.py           # Supporting functions
+      └── specialized/         # Further breakdown if needed
+          ├── parser.py
+          └── formatter.py
+  ```
+
+## **Dynamic Restructuring Guidelines**
+
+- **When to Restructure:**
+  ```python
+  # ✅ DO: Restructure when you encounter these signals:
+  # - File exceeds 500 lines
+  # - Scrolling frequently to find code
+  # - Multiple distinct responsibilities in one file
+  # - Import statements becoming unwieldy
+  # - Test files becoming hard to navigate
+  # - Circular dependency issues
+  
+  # ✅ DO: Restructure proactively, not reactively
+  # Don't wait until file becomes unmanageable
+  ```
+
+- **How to Restructure:**
+  ```python
+  # 1. ANALYZE: What are the actual responsibilities?
+  def analyze_file_responsibilities(file_path):
+      """
+      Look for:
+      - Distinct classes with different purposes
+      - Groups of utility functions
+      - Different abstraction levels
+      - Import patterns (what's used together?)
+      """
+  
+  # 2. PLAN: Design new structure based on analysis
+  # - Keep related code together
+  # - Minimize cross-module dependencies
+  # - Maintain clear public APIs
+  
+  # 3. EXTRACT: Move code systematically
+  # - Start with most independent pieces
+  # - Extract utilities first
+  # - Move related functionality together
+  # - Update imports as you go
+  
+  # 4. VALIDATE: Ensure everything still works
+  # - Run full test suite
+  # - Check for circular imports
+  # - Verify API surface remains clean
+  ```
+
+## **Organizational Decision Tracking**
+
+- **Document Architectural Decisions:**
+  ```python
+  # ✅ DO: Keep a record of organizational decisions
+  # In module __init__.py or dedicated docs:
+  
+  """
+  Module Organization History:
+  
+  2024-01: Initially single file (document_processor.py)
+  2024-01: Split into parser/chunker/metadata (file grew to 5,820 lines)
+  Decision: Functional responsibility separation worked better than layer separation
+  
+  Current structure:
+  - parser.py: Markdown parsing and rule processing
+  - chunker.py: Document chunking and splitting
+  - metadata.py: Frontmatter and metadata extraction
+  - utils.py: Shared utilities
+  
+  Lessons learned:
+  - Utility functions are used across all modules
+  - Parser and chunker have clean separation
+  - Metadata extraction is truly independent
+  """
+  ```
+
+- **Track Patterns That Work:**
+  ```python
+  # ✅ DO: Note successful organizational patterns
+  # Update rules when patterns prove successful
+  
+  # Example successful pattern:
+  # Large processor classes → Extract by processing stage
+  # Works well for: document_processor, query_manager, data_preparation
+  # 
+  # Pattern: StageA → StageB → StageC becomes:
+  # - stage_a_processor.py
+  # - stage_b_processor.py  
+  # - stage_c_processor.py
+  # - pipeline_coordinator.py (orchestrates stages)
+  ```
+
+## **TDD Integration with Adaptive Organization**
+
+- **Test Structure Follows Code Structure:**
+  ```python
+  # ✅ DO: Keep test organization in sync with code organization
+  # When you split src/core/document_processor.py into:
+  # - src/core/document_processor/parser.py
+  # - src/core/document_processor/chunker.py
+  # 
+  # Also split tests/unit/test_document_processor.py into:
+  # - tests/unit/document_processor/test_parser.py
+  # - tests/unit/document_processor/test_chunker.py
+  ```
+
+- **Enhanced REFACTOR Phase:**
+  - **Code Refactoring**: Improve quality within existing structure
+  - **Architectural Refactoring**: Reorganize structure when needed
+  - Both phases must maintain 100% test coverage
+
+## **Practical Restructuring Examples**
+
+- **Example 1: Large Processing Class**
+  ```python
+  # ❌ BEFORE: Everything in one file
+  # src/core/document_processor.py (5,820 lines)
+  # class DocumentProcessor:
+  #     def parse_markdown()        # 1,200 lines
+  #     def chunk_document()        # 1,800 lines  
+  #     def extract_metadata()      # 800 lines
+  #     def validate_structure()    # 400 lines
+  #     # ... utility methods       # 1,620 lines
+  
+  # ✅ AFTER: Organized by processing stage
+  # src/core/document_processor/
+  # ├── __init__.py                 # Public API (50 lines)
+  # ├── markdown_parser.py          # MarkdownParser class (400 lines)
+  # ├── document_chunker.py         # DocumentChunker class (600 lines)
+  # ├── metadata_extractor.py       # MetadataExtractor class (300 lines)
+  # ├── structure_validator.py      # StructureValidator class (200 lines)
+  # └── processing_utils.py         # Shared utilities (300 lines)
+  ```
+
+- **Example 2: Service Layer Extraction**
+  ```python
+  # ❌ BEFORE: Mixed concerns
+  # src/core/query_manager.py (1,025 lines)
+  # - Query parsing and validation
+  # - Vector database operations  
+  # - API embedding calls
+  # - Result formatting
+  # - Caching logic
+  
+  # ✅ AFTER: Separated by concern boundaries
+  # src/core/query_processing/
+  # ├── query_parser.py          # Query parsing/validation (250 lines)
+  # ├── vector_search.py         # Vector operations (300 lines)
+  # ├── result_formatter.py      # Result processing (200 lines)
+  # └── query_cache.py           # Caching logic (150 lines)
+  # 
+  # src/services/
+  # └── embedding_client.py      # API calls (200 lines)
+  ```
+
+## **Migration Strategies**
+
+- **Gradual Migration:**
+  ```python
+  # ✅ DO: Migrate incrementally to minimize risk
+  # 1. Extract utilities first (lowest risk)
+  # 2. Extract standalone classes
+  # 3. Extract interdependent classes last
+  # 4. Update imports gradually
+  # 5. Run tests after each extraction
+  ```
+
+- **Maintaining Backward Compatibility:**
+  ```python
+  # ✅ DO: Provide compatibility during migration
+  # Old: from src.core.document_processor import DocumentProcessor
+  # New structure with compatibility:
+  
+  # src/core/document_processor/__init__.py
+  from .markdown_parser import MarkdownParser
+  from .document_chunker import DocumentChunker
+  from .metadata_extractor import MetadataExtractor
+  
+  # Backward compatibility
+  class DocumentProcessor:
+      """Backward compatible facade for the refactored components."""
+      def __init__(self):
+          self.parser = MarkdownParser()
+          self.chunker = DocumentChunker()
+          self.metadata = MetadataExtractor()
+      
+      def process_document(self, doc):
+          # Delegate to new components
+          parsed = self.parser.parse(doc)
+          chunks = self.chunker.chunk(parsed)
+          metadata = self.metadata.extract(parsed)
+          return ProcessedDocument(chunks, metadata)
+  ```
+
+## **Organization Quality Metrics**
+
+- **Good Organization Indicators:**
+  ```python
+  # ✅ Signs of good organization:
+  # - Average file size < 300 lines
+  # - Clear module responsibilities
+  # - Minimal circular dependencies
+  # - Easy to find relevant code
+  # - Tests mirror code structure
+  # - Import statements are clean and minimal
+  ```
+
+- **Organization Smells:**
+  ```python
+  # ❌ Signs of poor organization:
+  # - Files > 500 lines
+  # - Deep inheritance hierarchies
+  # - Utility functions scattered everywhere
+  # - Unclear module boundaries
+  # - Frequent circular import issues
+  # - Long import blocks
+  ```
+
+## **File Size Monitoring Integration**
+
+- **Use Monitoring Tools:**
+  ```bash
+  # ✅ DO: Regular monitoring with scripts/check_file_size.py
+  python scripts/check_file_size.py --root src
+  
+  # ✅ DO: Set up development habits
+  alias check-sizes="python scripts/check_file_size.py --root src"
+  alias check-large="find src -name '*.py' -exec wc -l {} \; | awk '$1 > 300' | sort -nr"
+  ```
+
+## **References**
+
+- **Related Rules**: [dev_workflow.mdc](mdc:.cursor/rules/dev_workflow.mdc), [test_driven_development.mdc](mdc:.cursor/rules/test_driven_development.mdc)
+- **Project Standards**: [ra-001-project-overview-and-standards.mdc](mdc:.cursor/rules/ra-001-project-overview-and-standards.mdc)

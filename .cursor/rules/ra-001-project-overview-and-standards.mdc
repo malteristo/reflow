@@ -97,81 +97,19 @@ def search_knowledge(query: str, collections: str = None) -> dict:
 - always use `uv pip install` instead of `pip install` when installing dependencies (uv).
 
 **Code organization:**
-```
-src/
-├── research_agent_backend/              # Python CLI Backend (FR-SI-003)
-│   ├── cli/                            # CLI Interface & Commands
-│   │   ├── cli.py                      # Main CLI entry point with Typer
-│   │   ├── kb_commands.py              # Knowledge base management commands
-│   │   ├── collection_commands.py     # Collection management commands
-│   │   ├── project_commands.py        # Project-specific operations
-│   │   ├── query_commands.py          # Query execution commands
-│   │   └── augmentation_commands.py   # Knowledge augmentation commands
-│   ├── core/                          # Core Business Logic
-│   │   ├── query_engine.py           # Main RAG pipeline implementation
-│   │   ├── embeddings.py             # Embedding service abstractions
-│   │   ├── document_processor.py     # Hybrid chunking & Markdown processing
-│   │   ├── reranker.py               # Cross-encoder re-ranking service
-│   │   ├── vector_store.py           # ChromaDB interface & operations
-│   │   └── knowledge_gap_detector.py # Gap detection & external search
-│   ├── services/                      # Service Layer
-│   │   ├── embedding_service.py      # Local & API embedding implementations
-│   │   ├── chunking_service.py       # Document chunking strategies
-│   │   ├── search_service.py         # Vector search & retrieval
-│   │   └── collection_service.py     # Collection management logic
-│   ├── models/                        # Data Models & Types
-│   │   ├── chunks.py                 # Chunk data structures
-│   │   ├── queries.py                # Query request/response models
-│   │   ├── collections.py            # Collection metadata models
-│   │   └── results.py                # Search result data structures
-│   ├── utils/                         # Utility Functions
-│   │   ├── config.py                 # Configuration management
-│   │   ├── logging_config.py         # Logging setup & configuration
-│   │   ├── error_handling.py         # Custom exceptions & error handling
-│   │   ├── result_formatter.py       # Result presentation & formatting
-│   │   ├── model_migration.py        # Embedding model change detection
-│   │   ├── caching.py                # Performance caching layer
-│   │   └── performance_optimizer.py  # Performance optimizations
-│   └── tests/                         # Backend Tests
-│       ├── unit/                     # Unit tests for individual modules
-│       ├── integration/              # Integration tests for workflows
-│       └── fixtures/                 # Test data & sample documents
-├── mcp_server/                        # FastMCP Server (FR-SI-001)
-│   ├── mcp_server.py                 # Main FastMCP server implementation
-│   ├── tools/                        # MCP Tool Definitions
-│   │   ├── query_tools.py            # Knowledge querying tools
-│   │   ├── collection_tools.py       # Collection management tools
-│   │   ├── document_tools.py         # Document ingestion tools
-│   │   └── augmentation_tools.py     # Knowledge augmentation tools
-│   ├── handlers/                     # Request/Response Handlers
-│   │   ├── cli_bridge.py             # CLI command execution bridge
-│   │   ├── parameter_validator.py    # Input validation & sanitization
-│   │   └── response_formatter.py     # Response formatting for Cursor
-│   └── tests/                        # MCP Server Tests
-│       ├── tool_tests/               # Individual tool tests
-│       └── integration_tests/        # End-to-end MCP workflow tests
-├── config/                           # Configuration Management
-│   ├── schema/                       # Configuration schemas & validation
-│   │   ├── config_schema.json        # Main config schema definition
-│   │   └── migration_schemas/        # Schema migration definitions
-│   ├── defaults/                     # Default configuration files
-│   │   ├── default_config.json       # System defaults
-│   │   └── model_defaults.json       # Model configuration defaults
-│   └── validators/                   # Configuration validation logic
-│       ├── config_validator.py       # Main config validation
-│       └── migration_validator.py    # Migration validation
-└── shared/                           # Shared Components
-    ├── types/                        # Common type definitions
-    │   ├── base_types.py             # Basic data types & enums
-    │   └── protocol_types.py         # Protocol-specific types
-    ├── constants/                    # System constants
-    │   ├── models.py                 # Model names & configurations
-    │   └── defaults.py               # Default values & settings
-    └── exceptions/                   # Custom exception definitions
-        ├── base_exceptions.py        # Base exception classes
-        ├── config_exceptions.py      # Configuration-related exceptions
-        └── search_exceptions.py      # Search & retrieval exceptions
-```
+- Follow adaptive organizational principles from [file_organization.mdc](mdc:.cursor/rules/file_organization.mdc)
+- Maintain separation between CLI backend (`src/research_agent_backend/`) and MCP server (`src/mcp_server/`)
+- Organize by functional responsibility rather than rigid directory structure
+- Extract modules when files exceed size thresholds (see [file_organization.mdc](mdc:.cursor/rules/file_organization.mdc))
+- Document organizational decisions and emerging patterns
+
+**Key organizational principles:**
+- **CLI Layer**: Command interfaces and user-facing operations
+- **Core Layer**: Business logic, RAG pipeline, vector operations
+- **Service Layer**: External integrations and API services  
+- **Model Layer**: Data structures and type definitions
+- **Utils Layer**: Shared utilities and helper functions
+- **Tests**: Mirror source structure, split when source modules split
 
 ## AI Assistant Guidelines
 
