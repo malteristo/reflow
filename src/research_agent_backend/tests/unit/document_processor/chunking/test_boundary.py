@@ -1,7 +1,7 @@
 """Tests for ChunkBoundary class - intelligent boundary detection."""
 
 import pytest
-from core.document_processor.chunking import ChunkConfig, ChunkBoundary
+from research_agent_backend.core.document_processor.chunking import ChunkConfig, ChunkBoundary
 
 
 class TestChunkBoundary:

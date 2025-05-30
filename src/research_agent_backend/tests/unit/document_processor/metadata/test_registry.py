@@ -1,7 +1,7 @@
 """Tests for metadata registry and query system."""
 
 import pytest
-from core.document_processor import MetadataRegistry, DocumentMetadata
+from research_agent_backend.core.document_processor import MetadataRegistry, DocumentMetadata
 
 
 class TestMetadataRegistry:

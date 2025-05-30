@@ -1,12 +1,12 @@
 """Integration tests for atomic unit system with existing chunking pipeline."""
 
 import pytest
-from core.document_processor.atomic_units import (
+from research_agent_backend.core.document_processor.atomic_units import (
     AtomicUnitType, AtomicUnit, AtomicUnitHandler
 )
-from core.document_processor.chunking import ChunkConfig, RecursiveChunker
-from core.document_processor import MarkdownParser
-from core.document_processor.structure import HeaderBasedSplitter
+from research_agent_backend.core.document_processor.chunking import ChunkConfig, RecursiveChunker
+from research_agent_backend.core.document_processor import MarkdownParser
+from research_agent_backend.core.document_processor.document_structure import HeaderBasedSplitter
 
 
 class TestAtomicUnitIntegration:

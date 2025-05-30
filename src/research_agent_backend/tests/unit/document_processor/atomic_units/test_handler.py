@@ -1,7 +1,7 @@
 """Tests for AtomicUnitHandler and AtomicUnitRegistry classes - handler system for atomic units."""
 
 import pytest
-from core.document_processor.atomic_units import (
+from research_agent_backend.core.document_processor.atomic_units import (
     AtomicUnitType, AtomicUnit, AtomicUnitHandler, AtomicUnitRegistry
 )
 

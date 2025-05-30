@@ -1,7 +1,7 @@
 """Tests for AtomicUnitType and AtomicUnit classes - atomic content unit types and instances."""
 
 import pytest
-from core.document_processor.atomic_units import AtomicUnitType, AtomicUnit
+from research_agent_backend.core.document_processor.atomic_units import AtomicUnitType, AtomicUnit
 
 
 class TestAtomicUnitType:

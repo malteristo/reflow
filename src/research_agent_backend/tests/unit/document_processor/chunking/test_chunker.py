@@ -1,11 +1,11 @@
 """Tests for RecursiveChunker class - recursive text chunking with intelligent boundaries."""
 
 import pytest
-from core.document_processor.chunking import (
+from research_agent_backend.core.document_processor.chunking import (
     ChunkConfig, ChunkBoundary, ChunkResult, RecursiveChunker
 )
-from core.document_processor import MarkdownParser
-from core.document_processor.structure import HeaderBasedSplitter
+from research_agent_backend.core.document_processor import MarkdownParser
+from research_agent_backend.core.document_processor.document_structure import HeaderBasedSplitter
 
 
 class TestRecursiveChunker:

@@ -1,7 +1,7 @@
 """Tests for integration between metadata extraction components."""
 
 import pytest
-from core.document_processor import (
+from research_agent_backend.core.document_processor import (
     MetadataExtractor, MetadataRegistry, MetadataQuery,
     HeaderBasedSplitter, MarkdownParser
 )

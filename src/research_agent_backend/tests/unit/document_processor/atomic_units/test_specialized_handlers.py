@@ -1,7 +1,7 @@
 """Tests for specialized atomic unit handlers - CodeBlockHandler, TableHandler, ListHandler, etc."""
 
 import pytest
-from core.document_processor.atomic_units import (
+from research_agent_backend.core.document_processor.atomic_units import (
     AtomicUnitType, AtomicUnit, CodeBlockHandler, TableHandler, 
     ListHandler, BlockquoteHandler, ParagraphHandler
 )

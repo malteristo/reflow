@@ -2,7 +2,7 @@
 
 import pytest
 import datetime
-from core.document_processor import FrontmatterParser, FrontmatterParseError
+from research_agent_backend.core.document_processor import FrontmatterParser, FrontmatterParseError
 
 
 class TestFrontmatterParser:

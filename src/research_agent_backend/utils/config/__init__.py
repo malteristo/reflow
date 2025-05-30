@@ -18,7 +18,7 @@ from .manager import ConfigManager
 from .paths import ConfigPaths
 from .file_operations import FileOperations
 from .schema_validation import SchemaValidator
-from .inheritance import InheritanceResolver
+from .inheritance import ConfigInheritance
 from .environment import EnvironmentHandler
 
 # Backward compatibility: expose ConfigManager as the main interface
@@ -27,7 +27,7 @@ __all__ = [
     'ConfigPaths', 
     'FileOperations',
     'SchemaValidator',
-    'InheritanceResolver',
+    'ConfigInheritance',
     'EnvironmentHandler'
 ]
 

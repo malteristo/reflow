@@ -1,7 +1,7 @@
 """Tests for ChunkResult class - represents chunking operation results."""
 
 import pytest
-from core.document_processor.chunking import ChunkResult
+from research_agent_backend.core.document_processor.chunking import ChunkResult
 
 
 class TestChunkResult:

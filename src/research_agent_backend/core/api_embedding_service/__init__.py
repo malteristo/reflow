@@ -36,7 +36,7 @@ Public API:
 
 from .service import APIEmbeddingService
 from .config import APIConfiguration
-from .exceptions import APIError, RateLimitError, AuthenticationError
+from .exceptions import APIError, RateLimitError, AuthenticationError, BatchProcessingError
 from .client import APIClient
 from .batch_processor import BatchProcessor
 from .model_integration import ModelIntegration
@@ -52,6 +52,7 @@ __all__ = [
     "APIError",
     "RateLimitError", 
     "AuthenticationError",
+    "BatchProcessingError",
     
     # Component classes (for advanced usage)
     "APIClient",

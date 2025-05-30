@@ -8,7 +8,8 @@ context and categorization for different failure modes.
 Exception Hierarchy:
     APIError
     ├── RateLimitError
-    └── AuthenticationError
+    ├── AuthenticationError
+    └── BatchProcessingError
 
 All exceptions inherit from EmbeddingServiceError (base embedding service exception).
 """
@@ -84,4 +85,31 @@ class AuthenticationError(APIError):
         Args:
             message: Human-readable error description
         """
-        super().__init__(message, status_code=401) 
+        super().__init__(message, status_code=401)
+
+
+class BatchProcessingError(APIError):
+    """
+    Exception raised when batch processing operations fail.
+    
+    This exception is raised when batch embedding requests fail due to
+    invalid batch sizes, processing errors, or resource constraints.
+    
+    Attributes:
+        batch_size: Size of the batch that failed
+        failed_indices: List of indices that failed processing (if available)
+    """
+    
+    def __init__(self, message: str, batch_size: Optional[int] = None, 
+                 failed_indices: Optional[list] = None) -> None:
+        """
+        Initialize batch processing error.
+        
+        Args:
+            message: Human-readable error description
+            batch_size: Size of the batch that failed
+            failed_indices: List of indices that failed processing
+        """
+        super().__init__(message)
+        self.batch_size = batch_size
+        self.failed_indices = failed_indices or [] 

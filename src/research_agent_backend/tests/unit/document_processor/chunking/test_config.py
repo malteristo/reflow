@@ -1,7 +1,7 @@
 """Tests for ChunkConfig class - configuration for chunking parameters."""
 
 import pytest
-from core.document_processor.chunking import ChunkConfig
+from research_agent_backend.core.document_processor.chunking import ChunkConfig
 
 
 class TestChunkConfig:

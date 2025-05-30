@@ -1,7 +1,7 @@
 """Tests for inline metadata tag extraction functionality."""
 
 import pytest
-from core.document_processor import InlineMetadataExtractor
+from research_agent_backend.core.document_processor import InlineMetadataExtractor
 
 
 class TestInlineMetadataExtractor:
