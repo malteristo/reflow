@@ -1,12 +1,11 @@
 """
 Atomic Unit Registry
 
-Registry system for managing different atomic unit type handlers.
-Provides pluggable architecture for atomic unit detection and processing.
+Registry for managing atomic unit handlers.
 """
 
-from typing import Dict, Any, List, Optional, Type
-from .types import AtomicUnitType, AtomicUnit
+from typing import Dict, List, Any
+from .types import AtomicUnitType
 from .handlers import (
     CodeBlockHandler,
     TableHandler,
@@ -17,38 +16,37 @@ from .handlers import (
 
 
 class AtomicUnitRegistry:
-    """Registry for atomic unit handlers."""
+    """Registry for managing atomic unit handlers."""
     
-    def __init__(self):
-        """Initialize registry with default handlers."""
+    def __init__(self) -> None:
         self._handlers: Dict[AtomicUnitType, Any] = {}
         self._register_default_handlers()
     
-    def _register_default_handlers(self):
+    def _register_default_handlers(self) -> None:
         """Register default handlers for all unit types."""
-        self.register(AtomicUnitType.CODE_BLOCK, CodeBlockHandler())
-        self.register(AtomicUnitType.TABLE, TableHandler())
-        self.register(AtomicUnitType.LIST, ListHandler())
-        self.register(AtomicUnitType.BLOCKQUOTE, BlockquoteHandler())
-        self.register(AtomicUnitType.PARAGRAPH, ParagraphHandler())
+        self._handlers[AtomicUnitType.CODE_BLOCK] = CodeBlockHandler()
+        self._handlers[AtomicUnitType.TABLE] = TableHandler()
+        self._handlers[AtomicUnitType.LIST] = ListHandler()
+        self._handlers[AtomicUnitType.BLOCKQUOTE] = BlockquoteHandler()
+        self._handlers[AtomicUnitType.PARAGRAPH] = ParagraphHandler()
     
-    def register(self, unit_type: AtomicUnitType, handler: Any):
-        """Register a handler for a unit type."""
+    def register_handler(self, unit_type: AtomicUnitType, handler: Any) -> None:
+        """Register a handler for a specific unit type."""
         self._handlers[unit_type] = handler
     
-    def get(self, unit_type: AtomicUnitType) -> Optional[Any]:
-        """Get handler for a unit type."""
+    def get_handler(self, unit_type: AtomicUnitType) -> Any:
+        """Get handler for a specific unit type."""
         return self._handlers.get(unit_type)
     
-    def has(self, unit_type: AtomicUnitType) -> bool:
-        """Check if handler exists for unit type."""
+    def has_handler(self, unit_type: AtomicUnitType) -> bool:
+        """Check if a handler exists for a unit type."""
         return unit_type in self._handlers
     
-    def unregister(self, unit_type: AtomicUnitType):
-        """Remove handler for unit type."""
-        if unit_type in self._handlers:
-            del self._handlers[unit_type]
-    
     def get_supported_types(self) -> List[AtomicUnitType]:
-        """Get list of supported unit types."""
-        return list(self._handlers.keys()) 
+        """Get list of all supported unit types."""
+        return list(self._handlers.keys())
+    
+    def unregister_handler(self, unit_type: AtomicUnitType) -> None:
+        """Unregister a handler for a specific unit type."""
+        if unit_type in self._handlers:
+            del self._handlers[unit_type] 
