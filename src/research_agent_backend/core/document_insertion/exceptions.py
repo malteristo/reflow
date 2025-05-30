@@ -35,6 +35,7 @@ class InsertionResult:
     errors: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     processing_time_seconds: float = 0.0
+    cache_hit: bool = False  # Track cache hits for optimization
     
     @property
     def has_errors(self) -> bool:
