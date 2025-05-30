@@ -1,0 +1,1 @@
+"""Test package for metadata module - modular tests for metadata extraction functionality.""" 
