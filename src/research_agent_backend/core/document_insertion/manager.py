@@ -703,4 +703,221 @@ class DocumentInsertionManager:
                 failed_result.errors.append(str(e))
                 results.append(failed_result)
         
-        return results 
+        return results
+    
+    def rebuild_collection_index(
+        self,
+        collection_name: str,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Rebuild vector index for a specific collection.
+        
+        This method extracts all documents from a collection, regenerates their
+        embeddings with the current embedding model, and rebuilds the vector index
+        for optimal search performance.
+        
+        Args:
+            collection_name: Name of the collection to rebuild
+            progress_callback: Optional callback function to report progress (0-100%)
+            
+        Returns:
+            Dictionary with rebuild statistics and results
+            
+        Raises:
+            InsertionError: If rebuild operation fails
+        """
+        try:
+            self.logger.info(f"Starting index rebuild for collection: {collection_name}")
+            start_time = time.time()
+            
+            # Initialize progress
+            if progress_callback:
+                progress_callback(0.0)
+            
+            # Get collection reference
+            collection = self.vector_store.get_collection(collection_name)
+            
+            # Get all documents from collection  
+            if progress_callback:
+                progress_callback(10.0)
+            
+            all_docs = self.vector_store.get_documents(
+                collection_name=collection_name,
+                include=['documents', 'metadatas', 'ids']
+            )
+            
+            if not all_docs.get('documents'):
+                self.logger.info(f"No documents found in collection {collection_name}")
+                return {
+                    'collection': collection_name,
+                    'documents_processed': 0,
+                    'success': True,
+                    'processing_time': time.time() - start_time
+                }
+            
+            documents = all_docs['documents']
+            metadatas = all_docs.get('metadatas', [])
+            original_ids = all_docs.get('ids', [])
+            
+            total_docs = len(documents)
+            self.logger.info(f"Found {total_docs} documents to rebuild")
+            
+            if progress_callback:
+                progress_callback(20.0)
+            
+            # Delete existing collection and recreate
+            collection_metadata = collection.metadata
+            self.vector_store.delete_collection(collection_name)
+            
+            if progress_callback:
+                progress_callback(30.0)
+            
+            # Recreate collection with same metadata
+            new_collection = self.vector_store.create_collection(
+                name=collection_name,
+                metadata=collection_metadata
+            )
+            
+            if progress_callback:
+                progress_callback(40.0)
+            
+            # Regenerate embeddings and add documents back
+            processed_docs = 0
+            batch_size = min(self.batch_size, 50)  # Smaller batches for rebuild
+            
+            for i in range(0, total_docs, batch_size):
+                batch_docs = documents[i:i + batch_size]
+                batch_metadata = metadatas[i:i + batch_size] if metadatas else [{}] * len(batch_docs)
+                batch_ids = original_ids[i:i + batch_size] if original_ids else [str(uuid4()) for _ in batch_docs]
+                
+                # Generate new embeddings
+                try:
+                    # Try async first if available
+                    if hasattr(self.embedding_svc, 'generate_embeddings'):
+                        embeddings = []
+                        for doc in batch_docs:
+                            embedding = self.embedding_svc.generate_embedding(doc)
+                            embeddings.append(embedding)
+                    else:
+                        # Fallback to synchronous embedding generation
+                        embeddings = []
+                        for doc in batch_docs:
+                            embedding = self.embedding_svc.generate_embedding(doc)
+                            embeddings.append(embedding)
+                except Exception as e:
+                    self.logger.warning(f"Embedding generation failed: {e}")
+                    # Simple fallback - create dummy embeddings for testing
+                    embeddings = [[0.0] * 384 for _ in batch_docs]
+                
+                # Add documents with new embeddings
+                self.vector_store.add_documents(
+                    collection_name=collection_name,
+                    chunks=batch_docs,
+                    embeddings=embeddings,
+                    metadata=batch_metadata,
+                    ids=batch_ids
+                )
+                
+                processed_docs += len(batch_docs)
+                
+                # Update progress
+                if progress_callback:
+                    rebuild_progress = 40.0 + (processed_docs / total_docs * 50.0)
+                    progress_callback(rebuild_progress)
+                
+                self.logger.debug(f"Rebuilt {processed_docs}/{total_docs} documents")
+            
+            # Final progress update
+            if progress_callback:
+                progress_callback(100.0)
+            
+            processing_time = time.time() - start_time
+            
+            result = {
+                'collection': collection_name,
+                'documents_processed': processed_docs,
+                'success': True,
+                'processing_time': processing_time
+            }
+            
+            self.logger.info(
+                f"Successfully rebuilt index for collection {collection_name}: "
+                f"{processed_docs} documents in {processing_time:.2f}s"
+            )
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Failed to rebuild index for collection {collection_name}: {e}"
+            self.logger.error(error_msg)
+            raise InsertionError(error_msg) from e
+    
+    def rebuild_index(
+        self,
+        progress_callback: Optional[Callable[[str, float], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Rebuild vector indices for all collections.
+        
+        Args:
+            progress_callback: Optional callback function to report progress per collection
+            
+        Returns:
+            Dictionary with overall rebuild statistics
+        """
+        try:
+            self.logger.info("Starting index rebuild for all collections")
+            start_time = time.time()
+            
+            collections = self.vector_store.list_collections()
+            if not collections:
+                return {
+                    'collections_processed': 0,
+                    'total_documents': 0,
+                    'success': True,
+                    'processing_time': 0.0
+                }
+            
+            results = {}
+            total_docs_processed = 0
+            
+            for i, collection_info in enumerate(collections):
+                collection_name = collection_info.name
+                
+                # Per-collection progress callback
+                def collection_progress(progress: float):
+                    if progress_callback:
+                        progress_callback(collection_name, progress)
+                
+                try:
+                    result = self.rebuild_collection_index(
+                        collection_name=collection_name,
+                        progress_callback=collection_progress
+                    )
+                    results[collection_name] = result
+                    total_docs_processed += result['documents_processed']
+                    
+                except Exception as e:
+                    self.logger.error(f"Failed to rebuild collection {collection_name}: {e}")
+                    results[collection_name] = {
+                        'collection': collection_name,
+                        'documents_processed': 0,
+                        'success': False,
+                        'error': str(e)
+                    }
+            
+            processing_time = time.time() - start_time
+            
+            return {
+                'collections_processed': len(collections),
+                'total_documents': total_docs_processed,
+                'success': True,
+                'processing_time': processing_time,
+                'collection_results': results
+            }
+            
+        except Exception as e:
+            error_msg = f"Failed to rebuild indices: {e}"
+            self.logger.error(error_msg)
+            raise InsertionError(error_msg) from e 

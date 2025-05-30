@@ -97,6 +97,8 @@ class CollectionStats:
     document_count: int
     metadata: Dict[str, Any]
     timestamp: str
+    storage_size_bytes: int = 0
+    last_modified: Optional[datetime] = None
     collection_type: Optional[str] = None
     owner_id: Optional[str] = None
     team_id: Optional[str] = None

@@ -57,7 +57,7 @@ def create_document_insertion_manager(
     # Create vector store if not provided
     if vector_store is None:
         from ...core.vector_store import create_chroma_manager
-        vector_store = create_chroma_manager(config_manager=config_manager)
+        vector_store = create_chroma_manager(config_file=config_file)
     
     # Create data preparation manager
     from ...core.data_preparation import create_data_preparation_manager

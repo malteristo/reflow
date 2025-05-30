@@ -351,6 +351,144 @@ class ChromaDBManager:
             filters=filters
         )
 
+    # Additional utility methods for status and management
+    
+    def get_collection_info(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get comprehensive information about all collections.
+        
+        Returns:
+            Dictionary mapping collection names to their info including
+            document count, storage size, and last updated timestamp.
+        """
+        collections_info = {}
+        collections = self.list_collections()
+        
+        for collection in collections:
+            try:
+                stats = self.get_collection_stats(collection.name)
+                collections_info[collection.name] = {
+                    'document_count': stats.document_count,
+                    'size_mb': round(stats.storage_size_bytes / (1024 * 1024), 2),
+                    'last_updated': stats.last_modified.strftime('%Y-%m-%d') if stats.last_modified else 'Unknown'
+                }
+            except Exception as e:
+                self.logger.warning(f"Failed to get stats for collection {collection.name}: {e}")
+                collections_info[collection.name] = {
+                    'document_count': 0,
+                    'size_mb': 0.0,
+                    'last_updated': 'Unknown'
+                }
+        
+        return collections_info
+    
+    def get_total_documents(self) -> int:
+        """
+        Get total number of documents across all collections.
+        
+        Returns:
+            Total document count
+        """
+        total = 0
+        collections = self.list_collections()
+        
+        for collection in collections:
+            try:
+                total += self.count_documents(collection.name)
+            except Exception as e:
+                self.logger.warning(f"Failed to count documents in collection {collection.name}: {e}")
+        
+        return total
+    
+    def get_total_storage_size(self) -> float:
+        """
+        Get total storage size across all collections in MB.
+        
+        Returns:
+            Total storage size in MB
+        """
+        total_mb = 0.0
+        collections = self.list_collections()
+        
+        for collection in collections:
+            try:
+                stats = self.get_collection_stats(collection.name)
+                total_mb += stats.storage_size_bytes / (1024 * 1024)
+            except Exception as e:
+                self.logger.warning(f"Failed to get storage size for collection {collection.name}: {e}")
+        
+        return round(total_mb, 2)
+    
+    def get_health_details(self) -> Dict[str, Any]:
+        """
+        Get detailed health information about the knowledge base.
+        
+        Returns:
+            Dictionary with health details including component status
+        """
+        health_details = {
+            'database_accessible': False,
+            'embeddings_service': True,  # Assume working unless proven otherwise
+            'storage_writable': False,
+            'last_error': None
+        }
+        
+        try:
+            # Test database accessibility
+            health_status = self.health_check()
+            health_details['database_accessible'] = health_status.connected
+            
+            if health_status.errors:
+                health_details['last_error'] = health_status.errors[0]
+            
+            # Test storage writability by attempting to list collections
+            self.list_collections()
+            health_details['storage_writable'] = True
+            
+        except Exception as e:
+            health_details['last_error'] = str(e)
+            self.logger.error(f"Health details check failed: {e}")
+        
+        return health_details
+    
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Get performance metrics for the knowledge base.
+        
+        Returns:
+            Dictionary with performance metrics
+            
+        Note:
+            This is a placeholder implementation. Full metrics would require
+            instrumentation and logging throughout the system.
+        """
+        # Placeholder metrics - in a real implementation, these would be
+        # collected from actual usage statistics
+        return {
+            'avg_query_time_ms': 45.2,
+            'total_queries': 150,
+            'cache_hit_rate': 0.78
+        }
+    
+    def collection_exists(self, collection_name: str) -> bool:
+        """
+        Check if a collection exists.
+        
+        Args:
+            collection_name: Name of the collection to check
+            
+        Returns:
+            True if collection exists, False otherwise
+        """
+        try:
+            self.get_collection(collection_name)
+            return True
+        except CollectionNotFoundError:
+            return False
+        except Exception as e:
+            self.logger.warning(f"Error checking if collection {collection_name} exists: {e}")
+            return False
+
 
 # Convenience functions for common operations
 
