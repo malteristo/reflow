@@ -1,0 +1,41 @@
+{
+  "test-project": {
+    "name": "test-project",
+    "description": "Test project for validation",
+    "tags": [],
+    "status": "active",
+    "created_at": "2025-05-31T10:30:23.263123",
+    "updated_at": "2025-05-31T10:30:23.263123",
+    "owner_id": "default_user",
+    "team_id": null,
+    "linked_collections": [],
+    "default_collections": [],
+    "config": {}
+  },
+  "test-project2": {
+    "name": "test-project2",
+    "description": "Test project for validation",
+    "tags": [],
+    "status": "active",
+    "created_at": "2025-05-31T10:30:31.153531",
+    "updated_at": "2025-05-31T10:30:31.153531",
+    "owner_id": "default_user",
+    "team_id": null,
+    "linked_collections": [],
+    "default_collections": [],
+    "config": {}
+  },
+  "test-project3": {
+    "name": "test-project3",
+    "description": "Test project for dry-run validation",
+    "tags": [],
+    "status": "active",
+    "created_at": "2025-05-31T10:31:28.346506",
+    "updated_at": "2025-05-31T10:31:28.346506",
+    "owner_id": "default_user",
+    "team_id": null,
+    "linked_collections": [],
+    "default_collections": [],
+    "config": {}
+  }
+}
