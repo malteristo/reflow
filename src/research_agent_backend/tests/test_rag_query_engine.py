@@ -1,21 +1,17 @@
-"""
-Tests for RAG Query Engine - Query Context Parsing (Red Phase).
+"""Tests for RAG Query Engine functionality."""
 
-This module tests the RAG Query Engine's ability to parse and extract context
-from user queries, preparing them for the RAG pipeline.
-"""
-
+from unittest.mock import Mock, patch, MagicMock
 import pytest
-from typing import Dict, List, Any, Optional
-from unittest.mock import Mock, patch
+from datetime import datetime
 
-# These imports will fail initially (Red phase)
 from research_agent_backend.core.rag_query_engine import (
-    RAGQueryEngine,
-    QueryContext,
-    QueryIntent,
+    RAGQueryEngine, 
+    QueryContext, 
+    QueryIntent, 
     ContextualFilter
 )
+from research_agent_backend.core.integration_pipeline.models import SearchResult
+from research_agent_backend.core.reranker.models import RankedResult
 
 
 class TestQueryContextParsing:
@@ -697,6 +693,790 @@ class TestRAGVectorSearchExecution:
         assert "content" in results[0]
         assert result["chunk_content"] == "Test content"
         assert result["collection"] == "test_collection"
+
+
+class TestRAGMetadataFiltering:
+    """Test suite for metadata filtering functionality (Red Phase)."""
+    
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_query_manager = Mock()
+        self.mock_embedding_service = Mock()
+        self.mock_reranker = Mock()
+        
+        self.rag_engine = RAGQueryEngine(
+            query_manager=self.mock_query_manager,
+            embedding_service=self.mock_embedding_service,
+            reranker=self.mock_reranker
+        )
+        
+        # Sample candidate results with rich metadata
+        self.candidate_results = [
+            {
+                "id": "doc1",
+                "content": "Python programming tutorial for beginners",
+                "distance": 0.1,
+                "metadata": {
+                    "collection": "programming",
+                    "author": "John Doe",
+                    "date": "2023-01-15",
+                    "category": "tutorial",
+                    "difficulty": "beginner",
+                    "language": "Python",
+                    "tags": ["programming", "tutorial", "python"],
+                    "rating": 4.5
+                }
+            },
+            {
+                "id": "doc2", 
+                "content": "Advanced Python algorithms and data structures",
+                "distance": 0.2,
+                "metadata": {
+                    "collection": "programming",
+                    "author": "Jane Smith",
+                    "date": "2023-06-20",
+                    "category": "advanced",
+                    "difficulty": "expert",
+                    "language": "Python",
+                    "tags": ["algorithms", "data-structures", "python"],
+                    "rating": 4.8
+                }
+            },
+            {
+                "id": "doc3",
+                "content": "JavaScript web development basics",
+                "distance": 0.3,
+                "metadata": {
+                    "collection": "web-dev",
+                    "author": "Bob Wilson",
+                    "date": "2023-03-10",
+                    "category": "tutorial",
+                    "difficulty": "intermediate",
+                    "language": "JavaScript",
+                    "tags": ["javascript", "web", "development", "tutorial"],
+                    "rating": 4.2
+                }
+            },
+            {
+                "id": "doc4",
+                "content": "Python data science with pandas",
+                "distance": 0.15,
+                "metadata": {
+                    "collection": "data-science",
+                    "author": "Alice Johnson",
+                    "date": "2023-09-05",
+                    "category": "tutorial",
+                    "difficulty": "intermediate",
+                    "language": "Python",
+                    "tags": ["python", "data-science", "pandas", "tutorial"],
+                    "rating": 4.7
+                }
+            }
+        ]
+    
+    def test_apply_metadata_filters_equals_operator(self):
+        """Test metadata filtering with equals operator."""
+        filters = [
+            ContextualFilter(field="language", value="Python", operator="equals", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return only Python documents
+        assert len(filtered_results) == 3
+        python_docs = ["doc1", "doc2", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in python_docs for doc_id in result_ids)
+        
+        # Should preserve original metadata
+        for result in filtered_results:
+            assert result["metadata"]["language"] == "Python"
+    
+    def test_apply_metadata_filters_collection_filter(self):
+        """Test filtering by collection."""
+        filters = [
+            ContextualFilter(field="collection", value="programming", operator="equals", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return only programming collection documents
+        assert len(filtered_results) == 2
+        programming_docs = ["doc1", "doc2"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in programming_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_contains_operator(self):
+        """Test metadata filtering with contains operator for array fields."""
+        filters = [
+            ContextualFilter(field="tags", value="tutorial", operator="contains", confidence=0.8)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return documents with "tutorial" in tags
+        assert len(filtered_results) == 3
+        tutorial_docs = ["doc1", "doc3", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in tutorial_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_greater_than_operator(self):
+        """Test metadata filtering with greater_than operator for numeric fields."""
+        filters = [
+            ContextualFilter(field="rating", value=4.5, operator="greater_than", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return documents with rating > 4.5
+        assert len(filtered_results) == 2
+        high_rated_docs = ["doc2", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in high_rated_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_less_than_operator(self):
+        """Test metadata filtering with less_than operator."""
+        filters = [
+            ContextualFilter(field="rating", value=4.3, operator="less_than", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return documents with rating < 4.3
+        assert len(filtered_results) == 1
+        assert filtered_results[0]["id"] == "doc3"
+        assert filtered_results[0]["metadata"]["rating"] == 4.2
+    
+    def test_apply_metadata_filters_date_range(self):
+        """Test date-based filtering with custom date operators."""
+        filters = [
+            ContextualFilter(field="date", value="2023-06-01", operator="greater_than", confidence=0.8)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return documents after June 1, 2023
+        assert len(filtered_results) == 2
+        recent_docs = ["doc2", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in recent_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_multiple_and_conditions(self):
+        """Test metadata filtering with multiple filters (AND logic)."""
+        filters = [
+            ContextualFilter(field="language", value="Python", operator="equals", confidence=0.9),
+            ContextualFilter(field="difficulty", value="intermediate", operator="equals", confidence=0.8)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return only Python documents with intermediate difficulty
+        assert len(filtered_results) == 1
+        assert filtered_results[0]["id"] == "doc4"
+        assert filtered_results[0]["metadata"]["language"] == "Python"
+        assert filtered_results[0]["metadata"]["difficulty"] == "intermediate"
+    
+    def test_apply_metadata_filters_multiple_complex_conditions(self):
+        """Test complex metadata filtering with multiple criteria."""
+        filters = [
+            ContextualFilter(field="category", value="tutorial", operator="equals", confidence=0.9),
+            ContextualFilter(field="rating", value=4.0, operator="greater_than", confidence=0.8)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return tutorial documents with rating > 4.0
+        assert len(filtered_results) == 3
+        tutorial_docs = ["doc1", "doc3", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in tutorial_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_missing_field(self):
+        """Test filtering when field doesn't exist in metadata."""
+        filters = [
+            ContextualFilter(field="nonexistent_field", value="some_value", operator="equals", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should return no results when field doesn't exist
+        assert len(filtered_results) == 0
+    
+    def test_apply_metadata_filters_empty_filters(self):
+        """Test filtering with empty filter list."""
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=[]
+        )
+        
+        # Should return all candidates when no filters applied
+        assert len(filtered_results) == 4
+        assert filtered_results == self.candidate_results
+    
+    def test_apply_metadata_filters_none_filters(self):
+        """Test filtering with None filters."""
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=None
+        )
+        
+        # Should return all candidates when no filters applied
+        assert len(filtered_results) == 4
+        assert filtered_results == self.candidate_results
+    
+    def test_apply_metadata_filters_empty_candidates(self):
+        """Test filtering with empty candidate list."""
+        filters = [
+            ContextualFilter(field="language", value="Python", operator="equals", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=[],
+            filters=filters
+        )
+        
+        # Should return empty list
+        assert filtered_results == []
+    
+    def test_apply_metadata_filters_confidence_based_filtering(self):
+        """Test that low-confidence filters are handled appropriately."""
+        filters = [
+            ContextualFilter(field="language", value="Python", operator="equals", confidence=0.3)  # Low confidence
+        ]
+        
+        # Should still apply filter regardless of confidence for now
+        # (Future enhancement could skip low-confidence filters)
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        assert len(filtered_results) == 3
+        python_docs = ["doc1", "doc2", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in python_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_case_insensitive_string_matching(self):
+        """Test case-insensitive string matching for equals operator."""
+        filters = [
+            ContextualFilter(field="language", value="python", operator="equals", confidence=0.9)  # lowercase
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Should match "Python" in metadata despite case difference
+        assert len(filtered_results) == 3
+        python_docs = ["doc1", "doc2", "doc4"]
+        result_ids = [result["id"] for result in filtered_results]
+        assert all(doc_id in python_docs for doc_id in result_ids)
+    
+    def test_apply_metadata_filters_with_nested_fields(self):
+        """Test filtering with nested metadata fields."""
+        # Add nested metadata to test data
+        nested_candidates = [
+            {
+                "id": "doc_nested1",
+                "content": "Test content",
+                "distance": 0.1,
+                "metadata": {
+                    "collection": "test",
+                    "author": {
+                        "name": "John Doe",
+                        "department": "Engineering"
+                    },
+                    "publication": {
+                        "year": 2023,
+                        "journal": "Tech Review"
+                    }
+                }
+            }
+        ]
+        
+        filters = [
+            ContextualFilter(field="author.department", value="Engineering", operator="equals", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=nested_candidates,
+            filters=filters
+        )
+        
+        # Should handle nested field access
+        assert len(filtered_results) == 1
+        assert filtered_results[0]["id"] == "doc_nested1"
+    
+    def test_apply_metadata_filters_preserves_result_structure(self):
+        """Test that filtering preserves the complete result structure."""
+        filters = [
+            ContextualFilter(field="language", value="Python", operator="equals", confidence=0.9)
+        ]
+        
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=self.candidate_results,
+            filters=filters
+        )
+        
+        # Verify complete structure is preserved
+        for result in filtered_results:
+            assert "id" in result
+            assert "content" in result
+            assert "distance" in result
+            assert "metadata" in result
+            assert isinstance(result["metadata"], dict)
+            
+            # Verify specific fields are intact
+            assert "collection" in result["metadata"]
+            assert "author" in result["metadata"]
+            assert "date" in result["metadata"]
+    
+    def test_metadata_filtering_integration_with_vector_search(self):
+        """Test integration of metadata filtering with vector search pipeline."""
+        query_embedding = [0.1, 0.2, 0.3, 0.4, 0.5]
+        collections = ["programming"]
+        
+        # Mock QueryManager to return our test candidates
+        self.mock_query_manager.query.return_value = self.candidate_results
+        
+        # Test with metadata filters
+        filters = {
+            "language": "Python",
+            "difficulty": "beginner"
+        }
+        
+        results = self.rag_engine.execute_vector_search(
+            query_embedding=query_embedding,
+            collections=collections,
+            top_k=10,
+            filters=filters
+        )
+        
+        # Should integrate metadata filtering into the pipeline
+        self.mock_query_manager.query.assert_called_once()
+        call_kwargs = self.mock_query_manager.query.call_args.kwargs
+        assert "filters" in call_kwargs or filters in self.mock_query_manager.query.call_args.args
+
+
+class TestRAGReranking:
+    """Test suite for re-ranking functionality (Red Phase)."""
+    
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_query_manager = Mock()
+        self.mock_embedding_service = Mock()
+        self.mock_reranker = Mock()
+        
+        self.rag_engine = RAGQueryEngine(
+            query_manager=self.mock_query_manager,
+            embedding_service=self.mock_embedding_service,
+            reranker=self.mock_reranker
+        )
+        
+        # Sample search results for re-ranking
+        self.search_results = [
+            {
+                "id": "doc1",
+                "content": "Python programming tutorial for beginners",
+                "distance": 0.2,
+                "metadata": {
+                    "collection": "programming",
+                    "author": "John Doe",
+                    "rating": 4.5
+                }
+            },
+            {
+                "id": "doc2", 
+                "content": "Advanced Python algorithms and data structures",
+                "distance": 0.3,
+                "metadata": {
+                    "collection": "programming",
+                    "author": "Jane Smith",
+                    "rating": 4.8
+                }
+            },
+            {
+                "id": "doc3",
+                "content": "JavaScript web development basics",
+                "distance": 0.15,
+                "metadata": {
+                    "collection": "web-dev",
+                    "author": "Bob Wilson",
+                    "rating": 4.2
+                }
+            }
+        ]
+        
+        # Mock SearchResult objects for reranker
+        self.mock_search_result_objects = [
+            SearchResult(
+                content=result["content"],
+                metadata=result["metadata"], 
+                relevance_score=1.0 - result["distance"],
+                document_id=result["id"],
+                chunk_id=f"{result['id']}_chunk1"
+            )
+            for result in self.search_results
+        ]
+        
+        # Mock RankedResult objects from reranker
+        self.mock_ranked_results = [
+            RankedResult(
+                original_result=self.mock_search_result_objects[0],
+                rerank_score=0.95,
+                original_score=0.8,
+                rank=1
+            ),
+            RankedResult(
+                original_result=self.mock_search_result_objects[1],
+                rerank_score=0.88,
+                original_score=0.7,
+                rank=2
+            ),
+            RankedResult(
+                original_result=self.mock_search_result_objects[2],
+                rerank_score=0.82,
+                original_score=0.85,
+                rank=3
+            )
+        ]
+    
+    def test_apply_reranking_basic_functionality(self):
+        """Test basic re-ranking functionality with mock reranker."""
+        query = "Python programming tutorial"
+        
+        # Mock reranker response
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        # Test apply_reranking method
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=3
+        )
+        
+        # Verify reranker was called correctly
+        self.mock_reranker.rerank_results.assert_called_once()
+        call_args = self.mock_reranker.rerank_results.call_args
+        assert call_args[1]["query"] == query
+        assert call_args[1]["top_n"] == 3
+        
+        # Verify results structure
+        assert len(reranked_results) == 3
+        assert all("rerank_score" in result for result in reranked_results)
+        assert all("original_score" in result for result in reranked_results)
+        assert all("rank" in result for result in reranked_results)
+        
+        # Verify results are sorted by rerank_score (descending)
+        rerank_scores = [result["rerank_score"] for result in reranked_results]
+        assert rerank_scores == sorted(rerank_scores, reverse=True)
+    
+    def test_apply_reranking_preserves_metadata(self):
+        """Test that re-ranking preserves original metadata."""
+        query = "Python programming"
+        
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=3
+        )
+        
+        # Verify original metadata is preserved
+        for i, result in enumerate(reranked_results):
+            original_metadata = self.search_results[0]["metadata"]  # Should be reordered
+            assert "metadata" in result
+            assert "collection" in result["metadata"]
+            assert "author" in result["metadata"]
+            assert "rating" in result["metadata"]
+    
+    def test_apply_reranking_handles_conversion_to_search_results(self):
+        """Test conversion from raw results to SearchResult objects for reranker."""
+        query = "test query"
+        
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=2
+        )
+        
+        # Verify that candidates were converted to SearchResult objects
+        call_args = self.mock_reranker.rerank_results.call_args[1]["candidates"]
+        
+        # Should be SearchResult objects
+        assert all(hasattr(candidate, 'content') for candidate in call_args)
+        assert all(hasattr(candidate, 'metadata') for candidate in call_args)
+        assert all(hasattr(candidate, 'relevance_score') for candidate in call_args)
+    
+    def test_apply_reranking_handles_back_conversion_to_dict_format(self):
+        """Test conversion back from RankedResult to dictionary format."""
+        query = "test query"
+        
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=3
+        )
+        
+        # Verify results are in expected dictionary format for pipeline compatibility
+        for result in reranked_results:
+            assert isinstance(result, dict)
+            assert "id" in result
+            assert "content" in result 
+            assert "metadata" in result
+            assert "rerank_score" in result
+            assert "original_score" in result
+            assert "rank" in result
+    
+    def test_apply_reranking_with_top_n_limiting(self):
+        """Test that top_n parameter limits returned results correctly."""
+        query = "test query"
+        top_n = 2
+        
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results[:top_n]
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=top_n
+        )
+        
+        assert len(reranked_results) == top_n
+        
+        # Verify top_n was passed to reranker
+        self.mock_reranker.rerank_results.assert_called_once()
+        call_args = self.mock_reranker.rerank_results.call_args
+        assert call_args[1]["top_n"] == top_n
+    
+    def test_apply_reranking_empty_candidates(self):
+        """Test re-ranking with empty candidate list."""
+        query = "test query"
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=[],
+            top_n=5
+        )
+        
+        assert reranked_results == []
+        # Should not call reranker for empty candidates
+        self.mock_reranker.rerank_results.assert_not_called()
+    
+    def test_apply_reranking_error_handling(self):
+        """Test error handling during re-ranking operation."""
+        query = "test query"
+        
+        # Mock reranker to raise exception
+        self.mock_reranker.rerank_results.side_effect = Exception("Reranker error")
+        
+        # Should handle error gracefully and return original results
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=3
+        )
+        
+        # Should return original results with neutral rerank scores
+        assert len(reranked_results) == 3
+        assert all("rerank_score" in result for result in reranked_results)
+        # Error handling should assign neutral scores
+        assert all(result["rerank_score"] == 0.5 for result in reranked_results)
+    
+    def test_apply_reranking_score_improvement_tracking(self):
+        """Test tracking of score improvements from re-ranking."""
+        query = "Python programming"
+        
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=3
+        )
+        
+        # Verify score improvement information is tracked
+        for result in reranked_results:
+            assert "score_improvement" in result
+            score_improvement = result["score_improvement"]
+            assert isinstance(score_improvement, (int, float))
+            
+            # Should calculate improvement as (rerank_score - original_score)
+            expected_improvement = result["rerank_score"] - result["original_score"]
+            assert abs(score_improvement - expected_improvement) < 0.001
+    
+    def test_apply_reranking_integration_with_metadata_filtering(self):
+        """Test integration of re-ranking with metadata filtering pipeline."""
+        query = "Python programming"
+        
+        # Set up filtered candidates (simulating post-metadata-filtering)
+        filtered_candidates = self.search_results[:2]  # Only first 2 results
+        filtered_ranked_results = self.mock_ranked_results[:2]
+        
+        self.mock_reranker.rerank_results.return_value = filtered_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=filtered_candidates,
+            top_n=2
+        )
+        
+        assert len(reranked_results) == 2
+        
+        # Verify candidates passed to reranker match filtered set
+        call_args = self.mock_reranker.rerank_results.call_args[1]["candidates"]
+        assert len(call_args) == 2
+    
+    def test_apply_reranking_preserves_original_ranking_information(self):
+        """Test that original ranking information is preserved for analysis."""
+        query = "test query"
+        
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=self.search_results,
+            top_n=3
+        )
+        
+        # Verify original distance/score information is preserved
+        for i, result in enumerate(reranked_results):
+            assert "original_distance" in result or "distance" in result
+            assert "original_score" in result
+            
+            # Original score should match relevance calculation from distance
+            if "distance" in result:
+                expected_original_score = 1.0 - result["distance"]
+                assert abs(result["original_score"] - expected_original_score) < 0.1
+    
+    def test_reranking_pipeline_integration(self):
+        """Test integration of re-ranking into the complete RAG pipeline."""
+        # This test verifies that re-ranking fits into the overall query processing flow
+        query_context = QueryContext(
+            original_query="Python programming tutorial",
+            intent=QueryIntent.TUTORIAL_SEEKING,
+            key_terms=["Python", "programming", "tutorial"],
+            filters=[],
+            preferences={},
+            entities={},
+            temporal_context=None
+        )
+        
+        query_embedding = [0.1, 0.2, 0.3, 0.4, 0.5]
+        
+        # Mock the pipeline components
+        self.mock_query_manager.query.return_value = self.search_results
+        self.mock_embedding_service.generate_embeddings.return_value = query_embedding
+        self.mock_reranker.rerank_results.return_value = self.mock_ranked_results
+        
+        # Simulate full pipeline execution
+        # 1. Vector search
+        vector_results = self.rag_engine.execute_vector_search(
+            query_embedding=query_embedding,
+            collections=["programming"],
+            top_k=10
+        )
+        
+        # 2. Metadata filtering (assume no filters for this test)
+        filtered_results = self.rag_engine.apply_metadata_filters(
+            candidates=vector_results,
+            filters=[]
+        )
+        
+        # 3. Re-ranking (the focus of this test)
+        final_results = self.rag_engine.apply_reranking(
+            query=query_context.original_query,
+            candidates=filtered_results,
+            top_n=5
+        )
+        
+        # Verify pipeline integration
+        assert len(final_results) <= 5
+        assert all("rerank_score" in result for result in final_results)
+        
+        # Verify all pipeline components were called
+        self.mock_query_manager.query.assert_called_once()
+        self.mock_reranker.rerank_results.assert_called_once()
+    
+    def test_reranking_with_diverse_content_types(self):
+        """Test re-ranking with different content types and domains."""
+        # Add diverse content to test reranker's cross-domain capabilities
+        diverse_results = self.search_results + [
+            {
+                "id": "doc4",
+                "content": "Machine learning model training best practices",
+                "distance": 0.4,
+                "metadata": {"collection": "ai", "type": "guide"}
+            },
+            {
+                "id": "doc5", 
+                "content": "Database design patterns for web applications",
+                "distance": 0.35,
+                "metadata": {"collection": "database", "type": "reference"}
+            }
+        ]
+        
+        # Create extended mock ranked results
+        extended_ranked_results = self.mock_ranked_results + [
+            RankedResult(
+                original_result=SearchResult(
+                    content="Machine learning model training best practices",
+                    metadata={"collection": "ai", "type": "guide"},
+                    relevance_score=0.6,
+                    document_id="doc4"
+                ),
+                rerank_score=0.78,
+                original_score=0.6,
+                rank=4
+            )
+        ]
+        
+        query = "programming best practices"
+        self.mock_reranker.rerank_results.return_value = extended_ranked_results
+        
+        reranked_results = self.rag_engine.apply_reranking(
+            query=query,
+            candidates=diverse_results,
+            top_n=4
+        )
+        
+        assert len(reranked_results) == 4
+        
+        # Verify cross-domain content is handled properly
+        collections = [result["metadata"]["collection"] for result in reranked_results]
+        assert len(set(collections)) > 1  # Should have multiple collections
 
 
 class TestRAGFeedbackGeneration:
