@@ -9,7 +9,9 @@ Implements FR-RQ-005, FR-RQ-008: Core query processing and re-ranking pipeline.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union, TypeVar, Generic
+from dataclasses import dataclass
+import time
 
 from .constants import DEFAULT_TOP_K, DEFAULT_DISTANCE_THRESHOLD
 from .query_context import QueryContext, QueryIntent, ContextualFilter
@@ -17,6 +19,175 @@ from .query_parsing import QueryParser, QueryEnhancer
 from .feedback_generation import FeedbackGenerator
 
 logger = logging.getLogger(__name__)
+
+
+class ContentHighlighter:
+    """Utility class for highlighting query terms in content."""
+    
+    @staticmethod
+    def highlight_terms(
+        content: str,
+        key_terms: List[str],
+        style: str = "html"
+    ) -> str:
+        """Highlight query terms in content based on style."""
+        if not content or not key_terms:
+            return content
+        
+        import re
+        
+        # Sort terms by length (longest first) to prioritize phrases over individual words
+        sorted_terms = sorted(key_terms, key=len, reverse=True)
+        
+        # Create a single regex pattern that matches all terms
+        # Escape each term and join with | (OR)
+        escaped_terms = [re.escape(term) for term in sorted_terms if term.strip()]
+        if not escaped_terms:
+            return content
+        
+        pattern = r'\b(?:' + '|'.join(escaped_terms) + r')\b'
+        
+        def highlight_replacement(match):
+            term = match.group(0)
+            if style == "html":
+                return f"<mark>{term}</mark>"
+            elif style == "markdown":
+                return f"**{term}**"
+            elif style == "cli":
+                return f"\033[1;33m{term}\033[0m"  # Yellow text
+            else:
+                return f"**{term}**"  # Default to markdown
+        
+        # Apply highlighting using case-insensitive matching
+        highlighted = re.sub(pattern, highlight_replacement, content, flags=re.IGNORECASE)
+        return highlighted
+
+
+class SnippetGenerator:
+    """Utility class for generating intelligent content snippets."""
+    
+    @staticmethod
+    def generate_snippet(
+        content: str,
+        key_terms: List[str],
+        max_length: int = 200,
+        context_window: int = 50
+    ) -> str:
+        """Generate an intelligent snippet from content focusing on query terms."""
+        if not content:
+            return ""
+        
+        if len(content) <= max_length:
+            return content
+        
+        import re
+        
+        # Find positions of all key terms (case-insensitive)
+        term_positions = []
+        for term in key_terms:
+            if not term.strip():
+                continue
+            pattern = re.escape(term)
+            for match in re.finditer(pattern, content, re.IGNORECASE):
+                term_positions.append((match.start(), match.end()))
+        
+        if not term_positions:
+            # No terms found, return beginning of content
+            return content[:max_length].rsplit(' ', 1)[0] + "..."
+        
+        # Find the best position to center the snippet for maximum term coverage
+        term_positions.sort()
+        
+        # Calculate snippet start position
+        first_term_start = term_positions[0][0]
+        last_term_end = term_positions[-1][1]
+        
+        # Try to center around the term cluster
+        cluster_center = (first_term_start + last_term_end) // 2
+        snippet_start = max(0, cluster_center - max_length // 2)
+        
+        # Adjust to word boundaries
+        if snippet_start > 0:
+            # Find the next word boundary
+            next_space = content.find(' ', snippet_start)
+            if next_space != -1 and next_space < snippet_start + context_window:
+                snippet_start = next_space + 1
+        
+        snippet_end = min(len(content), snippet_start + max_length)
+        
+        # Adjust end to word boundary
+        if snippet_end < len(content):
+            last_space = content.rfind(' ', snippet_start, snippet_end)
+            if last_space > snippet_start + max_length // 2:
+                snippet_end = last_space
+        
+        snippet = content[snippet_start:snippet_end]
+        
+        # Add ellipsis if needed
+        if snippet_start > 0:
+            snippet = "..." + snippet
+        if snippet_end < len(content):
+            snippet = snippet + "..."
+        
+        return snippet
+
+
+class ResultFormatter:
+    """Utility class for formatting query results in different output formats."""
+    
+    def __init__(self):
+        self.highlighter = ContentHighlighter()
+        self.snippet_generator = SnippetGenerator()
+    
+    def format_for_output(
+        self,
+        formatted_results: Dict[str, Any],
+        output_format: str
+    ) -> Dict[str, Any]:
+        """Format results for specific output type."""
+        if output_format == "cli":
+            return self._format_for_cli(formatted_results)
+        elif output_format == "api":
+            return self._format_for_api(formatted_results)
+        else:
+            return formatted_results  # Default structured format
+    
+    def _format_for_cli(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Format results for CLI display."""
+        cli_results = results.copy()
+        
+        # Simplify metadata for CLI readability
+        if "results" in cli_results:
+            for result in cli_results["results"]:
+                if "metadata" in result:
+                    # Keep only essential metadata for CLI
+                    essential_meta = {
+                        "source": result["metadata"].get("source", "Unknown"),
+                        "type": result["metadata"].get("type", "document"),
+                        "collection": result["metadata"].get("collection", "default")
+                    }
+                    result["metadata"] = essential_meta
+        
+        # Remove performance metrics for cleaner CLI output
+        cli_results.pop("performance_metrics", None)
+        
+        return cli_results
+    
+    def _format_for_api(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Format results for API response."""
+        api_results = results.copy()
+        
+        # Ensure all fields are properly serializable
+        if "query_info" in api_results:
+            query_info = api_results["query_info"]
+            if "timestamp" in query_info and hasattr(query_info["timestamp"], "isoformat"):
+                query_info["timestamp"] = query_info["timestamp"].isoformat()
+        
+        # Add API-specific metadata
+        api_results["api_version"] = "1.0"
+        api_results["response_type"] = "search_results"
+        
+        return api_results
 
 
 class RAGQueryEngine:
@@ -34,6 +205,9 @@ class RAGQueryEngine:
         self.embedding_service = embedding_service
         self.reranker = reranker
         self.logger = logging.getLogger(__name__)
+        self.query_parser = QueryParser()
+        self.feedback_generator = FeedbackGenerator()
+        self.result_formatter = ResultFormatter()
     
     def parse_query_context(self, query: str) -> QueryContext:
         """
@@ -271,6 +445,295 @@ class RAGQueryEngine:
             "feedback_id": f"feedback_{hash(str(feedback_data))}"
         }
     
+    def format_results(
+        self,
+        query_context: QueryContext,
+        reranked_results: List[Dict[str, Any]],
+        feedback: Dict[str, Any],
+        output_format: str = "structured",
+        format_options: Optional[Dict[str, Any]] = None,
+        formatting_options: Optional[Dict[str, Any]] = None,  # Backward compatibility
+        include_performance: bool = False  # Backward compatibility
+    ) -> Dict[str, Any]:
+        """
+        Format final ranked results into user-friendly structure.
+        
+        Args:
+            query_context: Original query context
+            reranked_results: Results after re-ranking
+            feedback: Query feedback and suggestions
+            output_format: Output format ("structured", "cli", "api")
+            format_options: Additional formatting options
+            formatting_options: Legacy parameter name (backward compatibility)
+            include_performance: Whether to include performance metrics
+            
+        Returns:
+            Dictionary with formatted results and metadata
+        """
+        # Handle backward compatibility
+        options = format_options or formatting_options or {}
+        if include_performance:
+            options["include_performance"] = True
+        
+        try:
+            # Process each result with highlighting and snippets
+            formatted_results = []
+            for result in reranked_results:
+                formatted_result = self._format_single_result(
+                    result, query_context, options
+                )
+                formatted_results.append(formatted_result)
+            
+            # Build comprehensive response structure
+            response = {
+                "query_info": {
+                    "original_query": query_context.original_query,
+                    "intent": query_context.intent.value if query_context.intent else "unknown",
+                    "key_terms": query_context.key_terms,
+                    "timestamp": time.time()
+                },
+                "results": formatted_results,
+                "result_summary": {
+                    "total_results": len(formatted_results),
+                    "confidence_levels": self._calculate_confidence_distribution(formatted_results),
+                    "collections_covered": list(set(
+                        r.get("metadata", {}).get("collection", "unknown") 
+                        for r in formatted_results
+                    ))
+                },
+                "feedback": feedback,
+                "improvement_suggestions": self._generate_improvement_suggestions(
+                    query_context, formatted_results
+                )
+            }
+            
+            # Add legacy field mappings for backward compatibility
+            if output_format == "structured":
+                response["summary"] = response["result_summary"]
+                response["suggestions"] = response["improvement_suggestions"]
+                response["metadata"] = {
+                    "format": output_format,
+                    "timestamp": response["query_info"]["timestamp"],
+                    "processing_info": "Results formatted for structured output"
+                }
+            elif output_format == "cli":
+                response["header"] = f"Search Results for: {query_context.original_query}"
+                response["summary"] = response["result_summary"]
+            elif output_format == "api":
+                response["query"] = response["query_info"]
+                response["metadata"] = {"processing_info": "Results formatted for API"}
+            
+            # Add performance metrics if requested
+            if options.get("include_performance", False):
+                response["performance_metrics"] = {
+                    "processing_time": options.get("processing_time", 0),
+                    "total_candidates_evaluated": options.get("total_candidates", 0),
+                    "reranking_time": options.get("reranking_time", 0)
+                }
+            
+            # Format for specific output type
+            return self.result_formatter.format_for_output(response, output_format)
+            
+        except Exception as e:
+            logger.error(f"Error formatting results: {e}")
+            # Return basic fallback structure with backward compatibility
+            fallback = {
+                "query_info": {"original_query": query_context.original_query},
+                "results": reranked_results,
+                "error": "Result formatting failed",
+                "feedback": feedback
+            }
+            
+            # Add legacy fields for error handling tests
+            if output_format == "structured":
+                fallback["metadata"] = {"errors": [str(e)]}
+                fallback["suggestions"] = []
+            
+            return fallback
+    
+    def _format_single_result(
+        self,
+        result: Dict[str, Any],
+        query_context: QueryContext,
+        options: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Format a single result with highlighting and snippets."""
+        content = result.get("content", "")
+        
+        # Generate highlighted snippet
+        snippet_length = options.get("snippet_length", 200)
+        snippet = self.result_formatter.snippet_generator.generate_snippet(
+            content, query_context.key_terms, snippet_length
+        )
+        
+        # Apply highlighting
+        highlight_style = options.get("highlight_style", "html")
+        highlighted_content = self.result_formatter.highlighter.highlight_terms(
+            content, query_context.key_terms, highlight_style
+        )
+        highlighted_snippet = self.result_formatter.highlighter.highlight_terms(
+            snippet, query_context.key_terms, highlight_style
+        )
+        
+        # Enrich metadata
+        metadata = result.get("metadata", {})
+        enriched_metadata = self._enrich_metadata(metadata, options)
+        
+        formatted_result = {
+            "content": highlighted_content,
+            "snippet": highlighted_snippet,
+            "metadata": enriched_metadata,
+            "relevance_score": result.get("relevance_score", 0.0),
+            "confidence": self._calculate_result_confidence(result),
+            "match_info": {
+                "matched_terms": self._find_matched_terms(content, query_context.key_terms),
+                "term_frequency": self._calculate_term_frequency(content, query_context.key_terms)
+            }
+        }
+        
+        # Add legacy fields that tests expect
+        formatted_result.update({
+            "id": result.get("id", "unknown"),
+            "rerank_score": result.get("rerank_score", result.get("relevance_score", 0.0)),
+            "original_score": result.get("original_score", 0.0),
+            "rank": result.get("rank", 0),
+            "score_improvement": result.get("score_improvement", 0.0),
+            "distance": result.get("distance", 0.0),
+            "relevance": {
+                "rank": result.get("rank", 0),
+                "confidence": self._calculate_result_confidence(result),
+                "rerank_score": result.get("rerank_score", result.get("relevance_score", 0.0)),
+                "original_score": result.get("original_score", 0.0),
+                "score_improvement": result.get("score_improvement", 0.0)
+            }
+        })
+        
+        # Add source_info for metadata enrichment tests
+        if "source" in metadata:
+            formatted_result["source_info"] = {
+                "file": metadata["source"],
+                "type": metadata.get("type", "document"),
+                "author": metadata.get("author", "Unknown")
+            }
+        
+        return formatted_result
+    
+    # Helper methods that were missing
+    def _calculate_confidence_distribution(self, results: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Calculate confidence level distribution across results."""
+        if not results:
+            return {"high": 0.0, "medium": 0.0, "low": 0.0}
+        
+        high_count = sum(1 for r in results if r.get("confidence", 0) > 0.8)
+        medium_count = sum(1 for r in results if 0.5 <= r.get("confidence", 0) <= 0.8)
+        low_count = len(results) - high_count - medium_count
+        
+        total = len(results)
+        return {
+            "high": high_count / total,
+            "medium": medium_count / total,
+            "low": low_count / total
+        }
+    
+    def _generate_improvement_suggestions(
+        self, 
+        query_context: QueryContext, 
+        results: List[Dict[str, Any]]
+    ) -> List[Dict[str, str]]:
+        """Generate suggestions for improving search results."""
+        suggestions = []
+        
+        if not results:
+            suggestions.append({
+                "type": "expand_scope",
+                "suggestion": "Try broader terms or check spelling",
+                "reason": "No results found"
+            })
+        elif len(results) < 3:
+            suggestions.append({
+                "type": "expand_query",
+                "suggestion": "Add related terms or synonyms",
+                "reason": "Limited results found"
+            })
+        
+        # Check collection diversity
+        collections = set(r.get("metadata", {}).get("collection", "unknown") for r in results)
+        if len(collections) > 2:
+            suggestions.append({
+                "type": "filter_collections",
+                "suggestion": "Add collection filter to focus results",
+                "reason": "Results span multiple collections"
+            })
+        
+        return suggestions
+    
+    def _enrich_metadata(
+        self, 
+        metadata: Dict[str, Any], 
+        options: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Enrich metadata with user-friendly formatting."""
+        enriched = metadata.copy()
+        
+        # Format type information
+        doc_type = metadata.get("type", "document")
+        enriched["type_display"] = doc_type.replace("_", " ").title()
+        
+        # Format tags for display
+        if "tags" in metadata:
+            tags = metadata["tags"]
+            if isinstance(tags, list):
+                enriched["tags_display"] = ", ".join(tags)
+            else:
+                enriched["tags_display"] = str(tags)
+        
+        # Add creation info if available
+        if "created" in metadata:
+            enriched["created_display"] = metadata["created"]
+        
+        return enriched
+    
+    def _calculate_result_confidence(self, result: Dict[str, Any]) -> float:
+        """Calculate confidence score for a result."""
+        relevance_score = result.get("relevance_score", result.get("rerank_score", 0.0))
+        
+        # Base confidence on relevance score
+        if relevance_score > 0.9:
+            return 0.95
+        elif relevance_score > 0.8:
+            return 0.85
+        elif relevance_score > 0.6:
+            return 0.7
+        elif relevance_score > 0.4:
+            return 0.5
+        else:
+            return 0.3
+    
+    def _find_matched_terms(self, content: str, key_terms: List[str]) -> List[str]:
+        """Find which query terms are present in the content."""
+        import re
+        matched = []
+        content_lower = content.lower()
+        
+        for term in key_terms:
+            if term.lower() in content_lower:
+                matched.append(term)
+        
+        return matched
+    
+    def _calculate_term_frequency(self, content: str, key_terms: List[str]) -> Dict[str, int]:
+        """Calculate frequency of query terms in content."""
+        import re
+        frequencies = {}
+        content_lower = content.lower()
+        
+        for term in key_terms:
+            pattern = re.escape(term.lower())
+            matches = re.findall(pattern, content_lower)
+            frequencies[term] = len(matches)
+        
+        return frequencies
+
     # Private helper methods for core pipeline operations
     
     def _prepare_search_parameters(

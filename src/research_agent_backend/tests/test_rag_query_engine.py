@@ -1768,4 +1768,436 @@ class TestRAGFeedbackGeneration:
         # Metrics should be properly calculated
         assert 0.0 <= metrics["average_relevance"] <= 1.0
         assert 0.0 <= metrics["result_diversity"] <= 1.0
-        assert 0.0 <= metrics["query_term_coverage"] <= 1.0 
+        assert 0.0 <= metrics["query_term_coverage"] <= 1.0
+
+
+class TestRAGResultFormatting:
+    """Test cases for result formatting functionality."""
+    
+    def setup_method(self):
+        """Set up test fixtures for result formatting tests."""
+        from unittest.mock import Mock
+        from research_agent_backend.core.rag_query_engine import QueryContext, QueryIntent, ContextualFilter
+        
+        # Mock dependencies
+        self.mock_query_manager = Mock()
+        self.mock_embedding_service = Mock()
+        self.mock_reranker = Mock()
+        
+        # Create RAG engine instance
+        from research_agent_backend.core.rag_query_engine import RAGQueryEngine
+        self.rag_engine = RAGQueryEngine(
+            query_manager=self.mock_query_manager,
+            embedding_service=self.mock_embedding_service,
+            reranker=self.mock_reranker
+        )
+        
+        # Sample query context
+        self.query_context = QueryContext(
+            original_query="Python machine learning tutorial",
+            intent=QueryIntent.TUTORIAL_SEEKING,
+            key_terms=["machine learning", "Python", "tutorial", "machine", "learning"],
+            filters=[],
+            preferences={"complexity_level": "beginner"},
+            entities={"Python": "programming_language"},
+            temporal_context=None
+        )
+        
+        # Sample reranked results for formatting
+        self.reranked_results = [
+            {
+                "id": "doc1",
+                "content": "Python machine learning tutorial: Getting started with scikit-learn. This comprehensive guide covers the basics of machine learning in Python, including data preprocessing, model training, and evaluation. Perfect for beginners who want to learn machine learning with practical examples.",
+                "metadata": {
+                    "collection": "tutorials",
+                    "source": "ml_guide.md",
+                    "author": "Jane Smith",
+                    "created": "2024-01-15",
+                    "type": "tutorial",
+                    "tags": ["python", "machine-learning", "scikit-learn"]
+                },
+                "rerank_score": 0.92,
+                "original_score": 0.78,
+                "rank": 1,
+                "score_improvement": 0.14,
+                "distance": 0.22
+            },
+            {
+                "id": "doc2", 
+                "content": "Advanced Python techniques for machine learning practitioners. Explore optimization strategies, custom algorithms, and performance tuning for ML pipelines. Includes code examples and best practices for production environments.",
+                "metadata": {
+                    "collection": "advanced",
+                    "source": "advanced_ml.md", 
+                    "author": "Dr. Johnson",
+                    "created": "2024-02-20",
+                    "type": "guide",
+                    "tags": ["python", "optimization", "production"]
+                },
+                "rerank_score": 0.85,
+                "original_score": 0.72,
+                "rank": 2,
+                "score_improvement": 0.13,
+                "distance": 0.28
+            }
+        ]
+        
+        # Sample feedback for formatting tests
+        self.sample_feedback = {
+            "search_summary": {
+                "total_results": 2,
+                "collections_searched": ["tutorials", "advanced"],
+                "best_match_score": 0.92,
+                "query_coverage": 0.85
+            },
+            "result_explanations": [
+                {
+                    "result_id": "doc1",
+                    "relevance_score": 0.92,
+                    "ranking_reason": "High semantic similarity to query terms. Contains 'Python', 'machine learning', 'tutorial'. Relevance score: 0.92"
+                }
+            ],
+            "refinement_suggestions": [
+                {
+                    "type": "add_filter",
+                    "suggestion": "Add collection filter to focus on tutorials",
+                    "reason": "Multiple relevant collections found"
+                }
+            ],
+            "relevance_metrics": {
+                "average_relevance": 0.885,
+                "result_diversity": 0.75,
+                "query_term_coverage": 0.85
+            }
+        }
+    
+    def test_format_results_basic_structure(self):
+        """Test basic structure of formatted results."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured"
+        )
+        
+        # Verify top-level structure
+        assert isinstance(formatted_results, dict)
+        assert "query_info" in formatted_results
+        assert "results" in formatted_results
+        assert "summary" in formatted_results
+        assert "suggestions" in formatted_results
+        assert "metadata" in formatted_results
+        
+        # Verify query info
+        query_info = formatted_results["query_info"]
+        assert query_info["original_query"] == "Python machine learning tutorial"
+        assert query_info["intent"] == "tutorial_seeking"
+        assert "Python" in query_info["key_terms"]
+        
+        # Verify results structure
+        results = formatted_results["results"]
+        assert isinstance(results, list)
+        assert len(results) == 2
+        
+        # Verify individual result structure
+        for result in results:
+            assert "id" in result
+            assert "content" in result
+            assert "snippet" in result
+            assert "metadata" in result
+            assert "relevance" in result
+            assert "source_info" in result
+    
+    def test_format_results_content_highlighting(self):
+        """Test query term highlighting in content."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured"
+        )
+        
+        results = formatted_results["results"]
+        
+        # Check first result highlighting
+        first_result = results[0]
+        content = first_result["content"]
+        snippet = first_result["snippet"]
+        
+        # Should highlight query terms in content
+        assert "<mark>Python</mark>" in content or "**Python**" in content
+        assert "<mark>machine learning</mark>" in content or "**machine learning**" in content
+        assert "<mark>tutorial</mark>" in content or "**tutorial**" in content
+        
+        # Snippet should be properly truncated with highlights
+        # Allow for extra length due to highlighting markup tags
+        assert len(snippet) <= 300  # Increased to account for markup
+        assert "..." in snippet or len(snippet) < len(first_result["content"].replace("<mark>", "").replace("</mark>", ""))
+    
+    def test_format_results_snippet_generation(self):
+        """Test intelligent snippet generation around query terms."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured"
+        )
+        
+        results = formatted_results["results"]
+        
+        for result in results:
+            snippet = result["snippet"]
+            
+            # Snippet should contain query terms
+            lower_snippet = snippet.lower()
+            assert any(term.lower() in lower_snippet for term in ["python", "machine", "learning", "tutorial"])
+            
+            # Snippet should be meaningful length
+            assert 50 <= len(snippet) <= 300
+            
+            # Should not be empty or just punctuation
+            assert snippet.strip()
+            assert len(snippet.strip()) > 10
+    
+    def test_format_results_metadata_enrichment(self):
+        """Test metadata enrichment and presentation."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured"
+        )
+        
+        results = formatted_results["results"]
+        
+        for result in results:
+            metadata = result["metadata"]
+            source_info = result["source_info"]
+            relevance = result["relevance"]
+            
+            # Verify enriched metadata
+            assert "collection" in metadata
+            assert "source" in metadata
+            assert "type" in metadata
+            assert "tags" in metadata
+            
+            # Verify source information formatting
+            assert "file" in source_info
+            assert "author" in source_info
+            assert "created" in source_info
+            
+            # Verify relevance information
+            assert "rerank_score" in relevance
+            assert "original_score" in relevance
+            assert "rank" in relevance
+            assert "confidence" in relevance
+            assert 0.0 <= relevance["rerank_score"] <= 1.0
+            assert 0.0 <= relevance["original_score"] <= 1.0
+    
+    def test_format_results_cli_output_format(self):
+        """Test CLI-friendly output format."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="cli"
+        )
+        
+        # CLI format should be optimized for console display
+        assert isinstance(formatted_results, dict)
+        assert "header" in formatted_results
+        assert "results_table" in formatted_results
+        assert "summary_stats" in formatted_results
+        assert "next_steps" in formatted_results
+        
+        # Header should contain query summary
+        header = formatted_results["header"]
+        assert "query" in header.lower()
+        assert "python" in header.lower()
+        
+        # Results table should be structured for console display
+        table = formatted_results["results_table"]
+        assert isinstance(table, list)
+        assert len(table) == 2
+        
+        for row in table:
+            assert "rank" in row
+            assert "title" in row
+            assert "snippet" in row
+            assert "score" in row
+            assert "source" in row
+    
+    def test_format_results_api_output_format(self):
+        """Test API-friendly JSON output format."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="api"
+        )
+        
+        # API format should be structured for programmatic access
+        assert isinstance(formatted_results, dict)
+        assert "query" in formatted_results
+        assert "results" in formatted_results
+        assert "pagination" in formatted_results
+        assert "performance" in formatted_results
+        assert "suggestions" in formatted_results
+        
+        # Query should have complete context information
+        query_info = formatted_results["query"]
+        assert "text" in query_info
+        assert "intent" in query_info
+        assert "terms" in query_info
+        assert "filters" in query_info
+        
+        # Results should have complete information for API consumers
+        results = formatted_results["results"]
+        for result in results:
+            assert "id" in result
+            assert "content" in result
+            assert "metadata" in result
+            assert "scores" in result
+            assert "highlighting" in result
+            
+            # Scores should have comprehensive information
+            scores = result["scores"]
+            assert "relevance" in scores
+            assert "confidence" in scores
+            assert "improvement" in scores
+    
+    def test_format_results_performance_information(self):
+        """Test inclusion of performance and timing information."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured",
+            include_performance=True
+        )
+        
+        metadata = formatted_results["metadata"]
+        
+        # Should include timing information
+        assert "performance" in metadata
+        performance = metadata["performance"]
+        
+        assert "total_results" in performance
+        assert "processing_stages" in performance
+        assert "reranking_applied" in performance
+        
+        # Should track processing stages
+        stages = performance["processing_stages"]
+        assert isinstance(stages, dict)
+        # May include embedding_time, search_time, reranking_time, formatting_time
+    
+    def test_format_results_empty_results(self):
+        """Test formatting when no results are found."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=[],
+            feedback={
+                "search_summary": {"total_results": 0},
+                "result_explanations": [],
+                "refinement_suggestions": [
+                    {"type": "expand_scope", "suggestion": "Try broader terms", "reason": "No results found"}
+                ],
+                "relevance_metrics": {"average_relevance": 0.0}
+            },
+            output_format="structured"
+        )
+        
+        # Should handle empty results gracefully
+        assert isinstance(formatted_results, dict)
+        assert "results" in formatted_results
+        assert len(formatted_results["results"]) == 0
+        
+        # Should provide helpful suggestions
+        assert "suggestions" in formatted_results
+        suggestions = formatted_results["suggestions"]
+        assert len(suggestions) > 0
+        assert any("expand" in s.get("suggestion", "").lower() for s in suggestions)
+    
+    def test_format_results_error_handling(self):
+        """Test error handling in result formatting."""
+        # Test with malformed results
+        malformed_results = [
+            {"id": "doc1"},  # Missing required fields
+            {"content": "test"}  # Missing ID
+        ]
+        
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=malformed_results,
+            feedback=self.sample_feedback,
+            output_format="structured"
+        )
+        
+        # Should handle malformed results gracefully
+        assert isinstance(formatted_results, dict)
+        assert "results" in formatted_results
+        
+        # Should include error information
+        if "errors" in formatted_results["metadata"]:
+            errors = formatted_results["metadata"]["errors"]
+            assert isinstance(errors, list)
+    
+    def test_format_results_customization_options(self):
+        """Test result formatting with customization options."""
+        custom_options = {
+            "snippet_length": 150,
+            "highlight_style": "markdown",
+            "include_scores": True,
+            "include_metadata": False,
+            "sort_by": "rerank_score"
+        }
+        
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured",
+            formatting_options=custom_options
+        )
+        
+        results = formatted_results["results"]
+        
+        for result in results:
+            # Check snippet length customization
+            if "snippet" in result:
+                assert len(result["snippet"]) <= 150 + 20  # Allow some margin for highlighting
+            
+            # Check markdown highlighting style
+            if "content" in result:
+                content = result["content"]
+                # Should use markdown highlighting
+                assert "**" in content or "*" in content or "`" in content
+            
+            # Check scores inclusion/exclusion based on options
+            if custom_options["include_scores"]:
+                assert "relevance" in result
+            
+            if not custom_options["include_metadata"]:
+                # May have minimal metadata only
+                pass
+    
+    def test_format_results_integration_with_feedback(self):
+        """Test integration between result formatting and feedback generation."""
+        formatted_results = self.rag_engine.format_results(
+            query_context=self.query_context,
+            reranked_results=self.reranked_results,
+            feedback=self.sample_feedback,
+            output_format="structured"
+        )
+        
+        # Should integrate feedback suggestions
+        assert "suggestions" in formatted_results
+        suggestions = formatted_results["suggestions"]
+        
+        # Should match original feedback suggestions
+        original_suggestions = self.sample_feedback["refinement_suggestions"]
+        assert len(suggestions) == len(original_suggestions)
+        
+        # Should integrate search summary
+        summary = formatted_results["summary"]
+        assert "total_results" in summary
+        assert summary["total_results"] == self.sample_feedback["search_summary"]["total_results"] 
