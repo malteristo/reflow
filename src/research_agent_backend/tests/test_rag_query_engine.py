@@ -694,4 +694,298 @@ class TestRAGVectorSearchExecution:
         assert len(results) == 1
         assert "metadata" in results[0]
         assert results[0]["metadata"]["title"] == "Test Document"
-        assert "content" in results[0] 
+        assert "content" in results[0]
+        assert result["chunk_content"] == "Test content"
+        assert result["collection"] == "test_collection"
+
+
+class TestRAGFeedbackGeneration:
+    """Test suite for feedback generation functionality (Red Phase)."""
+    
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_query_manager = Mock()
+        self.mock_embedding_service = Mock()
+        self.mock_reranker = Mock()
+        
+        self.rag_engine = RAGQueryEngine(
+            query_manager=self.mock_query_manager,
+            embedding_service=self.mock_embedding_service,
+            reranker=self.mock_reranker
+        )
+        
+        # Sample search results for testing
+        self.sample_results = [
+            {
+                "id": "doc1",
+                "content": "Python is a high-level programming language",
+                "distance": 0.2,
+                "metadata": {"collection": "programming", "author": "tech_docs", "date": "2024-01-15"}
+            },
+            {
+                "id": "doc2", 
+                "content": "Machine learning algorithms require large datasets",
+                "distance": 0.4,
+                "metadata": {"collection": "ai", "author": "research", "date": "2024-02-10"}
+            },
+            {
+                "id": "doc3",
+                "content": "Data structures are fundamental to computer science",
+                "distance": 0.6,
+                "metadata": {"collection": "programming", "author": "tutorials", "date": "2024-03-01"}
+            }
+        ]
+        
+        self.sample_query_context = QueryContext(
+            original_query="What is Python programming?",
+            intent=QueryIntent.INFORMATION_SEEKING,
+            key_terms=["Python", "programming"],
+            filters=[],
+            preferences={},
+            entities={"technology": ["Python"]},
+            temporal_context=None
+        )
+    
+    def test_generate_result_feedback_basic(self):
+        """Test basic feedback generation for search results."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        assert isinstance(feedback, dict)
+        assert "search_summary" in feedback
+        assert "result_explanations" in feedback
+        assert "refinement_suggestions" in feedback
+        assert "relevance_metrics" in feedback
+        
+        # Verify result explanations for each result
+        assert len(feedback["result_explanations"]) == 3
+        for i, explanation in enumerate(feedback["result_explanations"]):
+            assert "result_id" in explanation
+            assert "relevance_score" in explanation
+            assert "ranking_reason" in explanation
+            assert explanation["result_id"] == self.sample_results[i]["id"]
+    
+    def test_relevance_scoring_calculation(self):
+        """Test relevance score calculation based on multiple factors."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        explanations = feedback["result_explanations"]
+        
+        # First result should have highest relevance (lowest distance)
+        assert explanations[0]["relevance_score"] > explanations[1]["relevance_score"]
+        assert explanations[1]["relevance_score"] > explanations[2]["relevance_score"]
+        
+        # Scores should be normalized between 0 and 1
+        for explanation in explanations:
+            score = explanation["relevance_score"]
+            assert 0.0 <= score <= 1.0
+    
+    def test_ranking_reason_generation(self):
+        """Test generation of human-readable ranking explanations."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        explanations = feedback["result_explanations"]
+        
+        # Check that ranking reasons are informative
+        for explanation in explanations:
+            reason = explanation["ranking_reason"]
+            assert isinstance(reason, str)
+            assert len(reason) > 20  # Should be a meaningful explanation
+            
+            # Should mention key factors
+            if explanation["result_id"] == "doc1":
+                assert "Python" in reason  # Should mention query match
+                assert "distance" in reason.lower() or "similarity" in reason.lower()
+    
+    def test_search_summary_generation(self):
+        """Test generation of overall search summary."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        summary = feedback["search_summary"]
+        
+        assert isinstance(summary, dict)
+        assert "total_results" in summary
+        assert "collections_searched" in summary
+        assert "best_match_score" in summary
+        assert "query_coverage" in summary
+        
+        assert summary["total_results"] == 3
+        assert "programming" in summary["collections_searched"]
+        assert "ai" in summary["collections_searched"]
+        assert 0.0 <= summary["best_match_score"] <= 1.0
+    
+    def test_refinement_suggestions_generation(self):
+        """Test generation of query refinement suggestions."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        suggestions = feedback["refinement_suggestions"]
+        
+        assert isinstance(suggestions, list)
+        assert len(suggestions) > 0
+        
+        # Each suggestion should have structure
+        for suggestion in suggestions:
+            assert isinstance(suggestion, dict)
+            assert "type" in suggestion
+            assert "suggestion" in suggestion
+            assert "reason" in suggestion
+            
+            # Valid suggestion types
+            assert suggestion["type"] in [
+                "add_filter", "refine_terms", "expand_scope", 
+                "change_collection", "add_context"
+            ]
+    
+    def test_refinement_suggestions_based_on_results(self):
+        """Test that refinement suggestions are contextually relevant."""
+        # Test with poor results (high distances)
+        poor_results = [
+            {
+                "id": "doc1",
+                "content": "Unrelated content about cooking",
+                "distance": 0.9,
+                "metadata": {"collection": "cooking", "author": "chef"}
+            }
+        ]
+        
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=poor_results,
+            top_k=1
+        )
+        
+        suggestions = feedback["refinement_suggestions"]
+        
+        # Should suggest collection refinement when results are from wrong collection
+        collection_suggestions = [s for s in suggestions if s["type"] == "change_collection"]
+        assert len(collection_suggestions) > 0
+        
+        # Should suggest term refinement when relevance is poor
+        term_suggestions = [s for s in suggestions if s["type"] == "refine_terms"]
+        assert len(term_suggestions) > 0
+    
+    def test_feedback_generation_with_filters(self):
+        """Test feedback generation when query has filters applied."""
+        filtered_context = QueryContext(
+            original_query="Python tutorials from programming collection",
+            intent=QueryIntent.TUTORIAL_SEEKING,
+            key_terms=["Python", "tutorials"],
+            filters=[
+                ContextualFilter(field="collection", value="programming", confidence=0.9)
+            ],
+            preferences={"tutorial_format": True}
+        )
+        
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=filtered_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        # Should acknowledge applied filters in summary
+        summary = feedback["search_summary"]
+        assert "filters_applied" in summary
+        assert len(summary["filters_applied"]) == 1
+        assert summary["filters_applied"][0]["field"] == "collection"
+    
+    def test_feedback_generation_with_preferences(self):
+        """Test feedback generation considering user preferences."""
+        preference_context = QueryContext(
+            original_query="Simple Python examples for beginners",
+            intent=QueryIntent.CODE_SEARCH,
+            key_terms=["Python", "examples"],
+            preferences={
+                "complexity_level": "beginner",
+                "include_examples": True,
+                "content_type": "code"
+            }
+        )
+        
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=preference_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        # Ranking reasons should consider preferences
+        explanations = feedback["result_explanations"]
+        for explanation in explanations:
+            reason = explanation["ranking_reason"]
+            # Should mention preference alignment where relevant
+            if "beginner" in reason.lower() or "example" in reason.lower():
+                assert True  # Good - mentions preferences
+    
+    def test_feedback_generation_empty_results(self):
+        """Test feedback generation when no results are found."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=[],
+            top_k=5
+        )
+        
+        assert feedback["search_summary"]["total_results"] == 0
+        assert len(feedback["result_explanations"]) == 0
+        
+        # Should provide helpful suggestions for empty results
+        suggestions = feedback["refinement_suggestions"]
+        assert len(suggestions) > 0
+        
+        # Should suggest expanding scope or changing terms
+        suggestion_types = [s["type"] for s in suggestions]
+        assert "expand_scope" in suggestion_types or "refine_terms" in suggestion_types
+    
+    def test_collect_user_feedback_interface(self):
+        """Test user feedback collection interface."""
+        feedback_data = {
+            "query_id": "query_123",
+            "result_id": "doc1",
+            "rating": 4,
+            "relevance": "high",
+            "feedback_text": "Very helpful result"
+        }
+        
+        result = self.rag_engine.collect_user_feedback(feedback_data)
+        
+        assert isinstance(result, dict)
+        assert "success" in result
+        assert "feedback_id" in result
+        assert result["success"] is True
+    
+    def test_feedback_metrics_tracking(self):
+        """Test tracking of feedback quality metrics."""
+        feedback = self.rag_engine.generate_result_feedback(
+            query_context=self.sample_query_context,
+            search_results=self.sample_results,
+            top_k=3
+        )
+        
+        metrics = feedback["relevance_metrics"]
+        
+        assert isinstance(metrics, dict)
+        assert "average_relevance" in metrics
+        assert "result_diversity" in metrics
+        assert "query_term_coverage" in metrics
+        
+        # Metrics should be properly calculated
+        assert 0.0 <= metrics["average_relevance"] <= 1.0
+        assert 0.0 <= metrics["result_diversity"] <= 1.0
+        assert 0.0 <= metrics["query_term_coverage"] <= 1.0 
