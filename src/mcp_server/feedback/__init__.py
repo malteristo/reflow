@@ -1,68 +1,116 @@
 """
-Structured Feedback and Progress Reporting Module.
+MCP Server Feedback Module
 
-This module implements subtask 15.7: Implement Structured Feedback 
-and Progress Reporting for the FastMCP server.
-
-Components:
-- progress_event_system: Real-time progress tracking and event generation
-- status_update_protocol: MCP-compliant status reporting
-- contextual_feedback_system: Query analysis and refinement suggestions
-- async_progress_reporter: Non-blocking asynchronous progress updates
-- feedback_configuration: Configuration management for feedback systems
+This module contains all feedback and progress reporting components for the MCP server.
 """
 
 from .progress_event_system import (
     ProgressEventSystem,
     ProgressEvent,
-    ProgressTracker
+    ProgressTracker,
+    OperationType
 )
 
 from .status_update_protocol import (
     StatusUpdateProtocol,
-    OperationStatus,
-    StatusMessage
+    StatusMessage,
+    OperationTracker,
+    OperationStatus
 )
 
 from .contextual_feedback_system import (
     ContextualFeedbackSystem,
+    FeedbackAnalyzer,
     QueryRefinementSuggestion,
-    FeedbackAnalyzer
+    ContextualFeedback,
+    FeedbackType,
+    SuggestionConfidence
+)
+
+from .interactive_feedback_flows import (
+    InteractiveFeedbackFlows,
+    UserInteraction,
+    WorkflowSession,
+    InteractionType,
+    InteractionState
+)
+
+from .protocol_compliance import (
+    ProtocolCompliantFeedbackFormatter,
+    ProtocolComplianceValidator,
+    FeedbackProtocolManager,
+    JsonRpcMessage,
+    McpFeedbackMessage,
+    ContentType,
+    FeedbackMessageType
 )
 
 from .async_progress_reporter import (
     AsyncProgressReporter,
-    ProgressEventEmitter
+    AsyncProgressEvent,
+    AsyncOperationTracker,
+    AsyncProgressEventConsumer,
+    ProgressEventType
 )
 
-from .feedback_configuration import (
-    FeedbackConfiguration,
-    ProgressReportingConfig,
-    FeedbackTemplateConfig
+from .progress_integration import (
+    ProgressReportingIntegrationManager,
+    StdioProgressCommunicator,
+    ResponseFormatterIntegration,
+    ErrorHandlerIntegration,
+    McpToolsIntegration,
+    ValidationSystemIntegration,
+    IntegrationType,
+    IntegrationConfig,
+    StdioMessage,
+    ResponseFormat,
+    ErrorContext
 )
+
+from .feedback_configuration import FeedbackConfiguration
 
 __all__ = [
-    # Progress Event System
     "ProgressEventSystem",
     "ProgressEvent", 
     "ProgressTracker",
-    
-    # Status Update Protocol
+    "OperationType",
     "StatusUpdateProtocol",
-    "OperationStatus",
     "StatusMessage",
-    
-    # Contextual Feedback System
-    "ContextualFeedbackSystem", 
-    "QueryRefinementSuggestion",
+    "OperationTracker", 
+    "OperationStatus",
+    "ContextualFeedbackSystem",
     "FeedbackAnalyzer",
-    
-    # Async Progress Reporter
+    "QueryRefinementSuggestion",
+    "ContextualFeedback",
+    "FeedbackType",
+    "SuggestionConfidence",
+    "InteractiveFeedbackFlows",
+    "UserInteraction",
+    "WorkflowSession", 
+    "InteractionType",
+    "InteractionState",
+    "ProtocolCompliantFeedbackFormatter",
+    "ProtocolComplianceValidator",
+    "FeedbackProtocolManager",
+    "JsonRpcMessage",
+    "McpFeedbackMessage",
+    "ContentType",
+    "FeedbackMessageType",
     "AsyncProgressReporter",
-    "ProgressEventEmitter",
-    
-    # Configuration
-    "FeedbackConfiguration",
-    "ProgressReportingConfig",
-    "FeedbackTemplateConfig"
+    "AsyncProgressEvent",
+    "AsyncOperationTracker", 
+    "AsyncProgressEventConsumer",
+    "ProgressEventType",
+    "ProgressReportingIntegrationManager",
+    "StdioProgressCommunicator",
+    "ResponseFormatterIntegration",
+    "ErrorHandlerIntegration",
+    "McpToolsIntegration",
+    "ValidationSystemIntegration",
+    "IntegrationType",
+    "IntegrationConfig",
+    "StdioMessage",
+    "ResponseFormat",
+    "ErrorContext",
+    "FeedbackConfiguration"
 ] 
