@@ -164,7 +164,7 @@ class QueryKnowledgeBaseTool(BaseMCPTool):
             logger.error(f"CLI invocation failed: {e}")
             raise
     
-    def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute the query knowledge base tool.
         
@@ -185,7 +185,10 @@ class QueryKnowledgeBaseTool(BaseMCPTool):
             args = ["query", query]
             
             if collections:
-                args.extend(["--collections", collections])
+                if isinstance(collections, list):
+                    args.extend(["--collections", ",".join(collections)])
+                else:
+                    args.extend(["--collections", str(collections)])
             
             args.extend(["--top-k", str(top_k)])
             
@@ -195,33 +198,20 @@ class QueryKnowledgeBaseTool(BaseMCPTool):
             # Add JSON output format
             args.append("--json")
             
-            # Execute CLI command synchronously for now
-            # TODO: Use async version when MCP supports it
+            # Execute CLI command asynchronously
             try:
-                result = subprocess.run(
-                    [self.cli_path] + args,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=30  # 30 second timeout
-                )
-                
-                # Parse CLI output
-                if result.stdout.strip():
-                    cli_data = json.loads(result.stdout.strip())
-                else:
-                    cli_data = {"results": [], "total_results": 0}
+                cli_data = await self.invoke_cli_async(args)
                 
                 # Format response according to MCP protocol specification
                 formatted_response = self._format_query_response(cli_data)
                 
                 return self.format_success_response(formatted_response)
                 
+            except subprocess.CalledProcessError as e:
+                error_msg = str(e)
+                return self.format_error(f"Query failed: {error_msg}")
             except subprocess.TimeoutExpired:
                 return self.format_error("Query timeout - operation took longer than 30 seconds")
-            except subprocess.CalledProcessError as e:
-                error_msg = e.stderr.strip() if e.stderr else "CLI query failed"
-                return self.format_error(f"Query failed: {error_msg}")
             except json.JSONDecodeError as e:
                 return self.format_error(f"Invalid CLI response format: {e}")
                 

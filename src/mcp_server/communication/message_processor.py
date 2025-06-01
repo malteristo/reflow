@@ -9,6 +9,7 @@ Implements subtask 15.2: STDIO Communication Layer.
 
 import asyncio
 import logging
+import json
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
@@ -71,6 +72,66 @@ class MessageProcessor:
             params=params,
             id=message["id"]
         )
+    
+    async def parse_request_from_string(self, message_str: str) -> ParsedRequest:
+        """
+        Asynchronously parse and validate a JSON-RPC request message from string.
+        
+        Args:
+            message_str: Raw JSON message string
+            
+        Returns:
+            ParsedRequest object with validated fields
+            
+        Raises:
+            ValueError: If message is invalid JSON-RPC 2.0
+        """
+        try:
+            message = json.loads(message_str)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON: {str(e)}")
+        
+        return self.parse_request(message)
+    
+    async def validate_mcp_response(self, response: Dict[str, Any]) -> bool:
+        """
+        Validate that a response follows MCP protocol requirements.
+        
+        Args:
+            response: Response message to validate
+            
+        Returns:
+            True if valid MCP response
+        """
+        # Check JSON-RPC 2.0 compliance
+        if response.get("jsonrpc") != "2.0":
+            return False
+        
+        if "id" not in response:
+            return False
+        
+        # Must have either result or error
+        has_result = "result" in response
+        has_error = "error" in response
+        
+        if not (has_result or has_error) or (has_result and has_error):
+            return False
+        
+        # If has result, check MCP content format
+        if has_result:
+            result = response["result"]
+            if isinstance(result, dict) and "content" in result:
+                content = result["content"]
+                if isinstance(content, list):
+                    for item in content:
+                        if not isinstance(item, dict):
+                            return False
+                        if "type" not in item or "text" not in item:
+                            return False
+                        if item["type"] not in ["text", "markdown", "json"]:
+                            return False
+        
+        return True
     
     def format_response(self, result: Any, request_id: Any) -> Dict[str, Any]:
         """

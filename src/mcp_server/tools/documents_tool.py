@@ -10,6 +10,7 @@ Implements subtask 15.3: Map CLI Tools to MCP Resources and Actions.
 import json
 import logging
 import subprocess
+import asyncio
 from typing import Dict, Any, List
 
 from .base_tool import BaseMCPTool, ToolValidationError
@@ -119,7 +120,51 @@ class IngestDocumentsTool(BaseMCPTool):
         
         return errors
     
-    def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    async def invoke_cli_async(self, args: List[str]) -> Dict[str, Any]:
+        """
+        Asynchronously invoke the CLI command.
+        
+        Args:
+            args: Command line arguments
+            
+        Returns:
+            CLI output as dictionary
+            
+        Raises:
+            subprocess.CalledProcessError: If CLI command fails
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                self.cli_path, *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "CLI command failed"
+                raise subprocess.CalledProcessError(
+                    process.returncode, 
+                    [self.cli_path] + args, 
+                    error_msg
+                )
+            
+            # Parse JSON output
+            output = stdout.decode().strip()
+            if not output:
+                return {"status": "success"}
+            
+            return json.loads(output)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse CLI JSON output: {e}")
+            raise subprocess.CalledProcessError(1, [self.cli_path] + args, f"Invalid JSON output: {e}")
+        except Exception as e:
+            logger.error(f"CLI invocation failed: {e}")
+            raise
+    
+    async def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the ingest documents tool."""
         try:
             action = parameters["action"]
@@ -147,31 +192,19 @@ class IngestDocumentsTool(BaseMCPTool):
             else:
                 return self.format_error(f"Unsupported action: {action}")
             
-            # Execute CLI command
+            # Execute CLI command asynchronously
             try:
-                result = subprocess.run(
-                    [self.cli_path] + args,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=120  # Longer timeout for document processing
-                )
-                
-                # Parse CLI output
-                if result.stdout.strip():
-                    cli_data = json.loads(result.stdout.strip())
-                else:
-                    cli_data = {"status": "success"}
+                cli_data = await self.invoke_cli_async(args)
                 
                 # Format response
                 formatted_response = self._format_documents_response(action, cli_data)
                 return self.format_success_response(formatted_response)
                 
+            except subprocess.CalledProcessError as e:
+                error_msg = str(e)
+                return self.format_error(f"Document operation failed: {error_msg}")
             except subprocess.TimeoutExpired:
                 return self.format_error("Document operation timeout - processing took longer than 2 minutes")
-            except subprocess.CalledProcessError as e:
-                error_msg = e.stderr.strip() if e.stderr else "Document operation failed"
-                return self.format_error(f"Document operation failed: {error_msg}")
             except json.JSONDecodeError as e:
                 return self.format_error(f"Invalid CLI response format: {e}")
                 
