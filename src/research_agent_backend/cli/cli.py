@@ -26,6 +26,7 @@ from .knowledge_base import kb_app
 from .collections import collections_app
 from .projects import projects_app
 from .query import query_app
+from .model_management import model_app
 
 # Initialize console for rich output
 console = Console()
@@ -44,6 +45,7 @@ app.add_typer(kb_app, name="kb", help="Knowledge base management commands")
 app.add_typer(collections_app, name="collections", help="Collection management commands")
 app.add_typer(projects_app, name="projects", help="Project-specific operations")
 app.add_typer(query_app, name="query", help="RAG querying commands")
+app.add_typer(model_app, name="model", help="Model change detection and management")
 
 # Global state
 _config_manager: Optional[ConfigManager] = None

@@ -8,7 +8,7 @@ orchestrating validation, preparation, chunking, embedding, and storage.
 import logging
 import time
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -708,7 +708,9 @@ class DocumentInsertionManager:
     def rebuild_collection_index(
         self,
         collection_name: str,
-        progress_callback: Optional[Callable[[float], None]] = None
+        progress_callback: Optional[Callable[[float], None]] = None,
+        enable_parallel: bool = True,
+        max_workers: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Rebuild vector index for a specific collection.
@@ -720,6 +722,8 @@ class DocumentInsertionManager:
         Args:
             collection_name: Name of the collection to rebuild
             progress_callback: Optional callback function to report progress (0-100%)
+            enable_parallel: Whether to use parallel processing for embedding generation
+            max_workers: Maximum number of worker threads for parallel processing
             
         Returns:
             Dictionary with rebuild statistics and results
@@ -753,7 +757,8 @@ class DocumentInsertionManager:
                     'collection': collection_name,
                     'documents_processed': 0,
                     'success': True,
-                    'processing_time': time.time() - start_time
+                    'processing_time': time.time() - start_time,
+                    'parallel_processing': False
                 }
             
             documents = all_docs['documents']
@@ -785,48 +790,23 @@ class DocumentInsertionManager:
             # Regenerate embeddings and add documents back
             processed_docs = 0
             batch_size = min(self.batch_size, 50)  # Smaller batches for rebuild
+            workers = max_workers or min(self.max_workers, 4)  # Limit workers for stability
             
-            for i in range(0, total_docs, batch_size):
-                batch_docs = documents[i:i + batch_size]
-                batch_metadata = metadatas[i:i + batch_size] if metadatas else [{}] * len(batch_docs)
-                batch_ids = original_ids[i:i + batch_size] if original_ids else [str(uuid4()) for _ in batch_docs]
-                
-                # Generate new embeddings
-                try:
-                    # Try async first if available
-                    if hasattr(self.embedding_svc, 'generate_embeddings'):
-                        embeddings = []
-                        for doc in batch_docs:
-                            embedding = self.embedding_svc.generate_embedding(doc)
-                            embeddings.append(embedding)
-                    else:
-                        # Fallback to synchronous embedding generation
-                        embeddings = []
-                        for doc in batch_docs:
-                            embedding = self.embedding_svc.generate_embedding(doc)
-                            embeddings.append(embedding)
-                except Exception as e:
-                    self.logger.warning(f"Embedding generation failed: {e}")
-                    # Simple fallback - create dummy embeddings for testing
-                    embeddings = [[0.0] * 384 for _ in batch_docs]
-                
-                # Add documents with new embeddings
-                self.vector_store.add_documents(
-                    collection_name=collection_name,
-                    chunks=batch_docs,
-                    embeddings=embeddings,
-                    metadata=batch_metadata,
-                    ids=batch_ids
+            # Choose processing strategy based on enable_parallel flag and document count
+            use_parallel = enable_parallel and total_docs > 20 and hasattr(self, 'embedding_svc')
+            
+            if use_parallel:
+                self.logger.info(f"Using parallel processing with {workers} workers for embedding generation")
+                processed_docs = self._rebuild_with_parallel_embeddings(
+                    documents, metadatas, original_ids, collection_name, 
+                    batch_size, workers, progress_callback, total_docs
                 )
-                
-                processed_docs += len(batch_docs)
-                
-                # Update progress
-                if progress_callback:
-                    rebuild_progress = 40.0 + (processed_docs / total_docs * 50.0)
-                    progress_callback(rebuild_progress)
-                
-                self.logger.debug(f"Rebuilt {processed_docs}/{total_docs} documents")
+            else:
+                self.logger.info("Using sequential processing for embedding generation")
+                processed_docs = self._rebuild_with_sequential_embeddings(
+                    documents, metadatas, original_ids, collection_name, 
+                    batch_size, progress_callback, total_docs
+                )
             
             # Final progress update
             if progress_callback:
@@ -838,12 +818,16 @@ class DocumentInsertionManager:
                 'collection': collection_name,
                 'documents_processed': processed_docs,
                 'success': True,
-                'processing_time': processing_time
+                'processing_time': processing_time,
+                'parallel_processing': use_parallel,
+                'workers_used': workers if use_parallel else 1,
+                'batch_size': batch_size
             }
             
             self.logger.info(
                 f"Successfully rebuilt index for collection {collection_name}: "
-                f"{processed_docs} documents in {processing_time:.2f}s"
+                f"{processed_docs} documents in {processing_time:.2f}s "
+                f"({'parallel' if use_parallel else 'sequential'} processing)"
             )
             
             return result
@@ -852,6 +836,203 @@ class DocumentInsertionManager:
             error_msg = f"Failed to rebuild index for collection {collection_name}: {e}"
             self.logger.error(error_msg)
             raise InsertionError(error_msg) from e
+    
+    def _rebuild_with_sequential_embeddings(
+        self,
+        documents: List[str],
+        metadatas: List[Dict],
+        original_ids: List[str],
+        collection_name: str,
+        batch_size: int,
+        progress_callback: Optional[Callable[[float], None]],
+        total_docs: int
+    ) -> int:
+        """
+        Rebuild collection using sequential embedding generation.
+        
+        Args:
+            documents: List of document texts
+            metadatas: List of document metadata
+            original_ids: List of original document IDs
+            collection_name: Name of the collection
+            batch_size: Size of processing batches
+            progress_callback: Progress reporting callback
+            total_docs: Total number of documents
+            
+        Returns:
+            Number of documents processed
+        """
+        processed_docs = 0
+        
+        for i in range(0, total_docs, batch_size):
+            batch_docs = documents[i:i + batch_size]
+            batch_metadata = metadatas[i:i + batch_size] if metadatas else [{}] * len(batch_docs)
+            batch_ids = original_ids[i:i + batch_size] if original_ids else [str(uuid4()) for _ in batch_docs]
+            
+            # Generate new embeddings sequentially
+            try:
+                embeddings = []
+                for doc in batch_docs:
+                    if hasattr(self.embedding_svc, 'embed_text'):
+                        embedding = self.embedding_svc.embed_text(doc)
+                    elif hasattr(self.embedding_svc, 'generate_embedding'):
+                        embedding = self.embedding_svc.generate_embedding(doc)
+                    else:
+                        # Fallback for testing
+                        embedding = [0.0] * 384
+                    embeddings.append(embedding)
+                    
+            except Exception as e:
+                self.logger.warning(f"Embedding generation failed: {e}")
+                # Simple fallback - create dummy embeddings for testing
+                embeddings = [[0.0] * 384 for _ in batch_docs]
+            
+            # Add documents with new embeddings
+            self.vector_store.add_documents(
+                collection_name=collection_name,
+                chunks=batch_docs,
+                embeddings=embeddings,
+                metadata=batch_metadata,
+                ids=batch_ids
+            )
+            
+            processed_docs += len(batch_docs)
+            
+            # Update progress
+            if progress_callback:
+                rebuild_progress = 40.0 + (processed_docs / total_docs * 50.0)
+                progress_callback(rebuild_progress)
+            
+            self.logger.debug(f"Rebuilt {processed_docs}/{total_docs} documents (sequential)")
+        
+        return processed_docs
+    
+    def _rebuild_with_parallel_embeddings(
+        self,
+        documents: List[str],
+        metadatas: List[Dict],
+        original_ids: List[str],
+        collection_name: str,
+        batch_size: int,
+        workers: int,
+        progress_callback: Optional[Callable[[float], None]],
+        total_docs: int
+    ) -> int:
+        """
+        Rebuild collection using parallel embedding generation.
+        
+        Args:
+            documents: List of document texts
+            metadatas: List of document metadata
+            original_ids: List of original document IDs
+            collection_name: Name of the collection
+            batch_size: Size of processing batches
+            workers: Number of worker threads
+            progress_callback: Progress reporting callback
+            total_docs: Total number of documents
+            
+        Returns:
+            Number of documents processed
+        """
+        processed_docs = 0
+        
+        # Process in batches, but generate embeddings in parallel within each batch
+        for i in range(0, total_docs, batch_size):
+            batch_docs = documents[i:i + batch_size]
+            batch_metadata = metadatas[i:i + batch_size] if metadatas else [{}] * len(batch_docs)
+            batch_ids = original_ids[i:i + batch_size] if original_ids else [str(uuid4()) for _ in batch_docs]
+            
+            # Generate embeddings in parallel for this batch
+            try:
+                embeddings = self._generate_embeddings_parallel(batch_docs, workers)
+            except Exception as e:
+                self.logger.warning(f"Parallel embedding generation failed, falling back to sequential: {e}")
+                # Fallback to sequential for this batch
+                embeddings = []
+                for doc in batch_docs:
+                    try:
+                        if hasattr(self.embedding_svc, 'embed_text'):
+                            embedding = self.embedding_svc.embed_text(doc)
+                        elif hasattr(self.embedding_svc, 'generate_embedding'):
+                            embedding = self.embedding_svc.generate_embedding(doc)
+                        else:
+                            embedding = [0.0] * 384
+                        embeddings.append(embedding)
+                    except Exception:
+                        embeddings.append([0.0] * 384)
+            
+            # Add documents with new embeddings
+            self.vector_store.add_documents(
+                collection_name=collection_name,
+                chunks=batch_docs,
+                embeddings=embeddings,
+                metadata=batch_metadata,
+                ids=batch_ids
+            )
+            
+            processed_docs += len(batch_docs)
+            
+            # Update progress
+            if progress_callback:
+                rebuild_progress = 40.0 + (processed_docs / total_docs * 50.0)
+                progress_callback(rebuild_progress)
+            
+            self.logger.debug(f"Rebuilt {processed_docs}/{total_docs} documents (parallel)")
+        
+        return processed_docs
+    
+    def _generate_embeddings_parallel(self, documents: List[str], workers: int) -> List[List[float]]:
+        """
+        Generate embeddings for documents in parallel.
+        
+        Args:
+            documents: List of document texts
+            workers: Number of worker threads
+            
+        Returns:
+            List of embedding vectors
+        """
+        embeddings = [None] * len(documents)
+        
+        def generate_single_embedding(doc_index: int, doc_text: str) -> Tuple[int, List[float]]:
+            """Generate embedding for a single document."""
+            try:
+                if hasattr(self.embedding_svc, 'embed_text'):
+                    embedding = self.embedding_svc.embed_text(doc_text)
+                elif hasattr(self.embedding_svc, 'generate_embedding'):
+                    embedding = self.embedding_svc.generate_embedding(doc_text)
+                else:
+                    # Fallback for testing
+                    embedding = [0.0] * 384
+                return doc_index, embedding
+            except Exception as e:
+                self.logger.warning(f"Failed to generate embedding for document {doc_index}: {e}")
+                return doc_index, [0.0] * 384
+        
+        # Use ThreadPoolExecutor for parallel embedding generation
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            # Submit all embedding tasks
+            future_to_index = {
+                executor.submit(generate_single_embedding, i, doc): i 
+                for i, doc in enumerate(documents)
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                try:
+                    doc_index, embedding = future.result()
+                    embeddings[doc_index] = embedding
+                except Exception as e:
+                    doc_index = future_to_index[future]
+                    self.logger.error(f"Embedding generation failed for document {doc_index}: {e}")
+                    embeddings[doc_index] = [0.0] * 384
+        
+        # Ensure all embeddings are filled (fallback for any None values)
+        for i, embedding in enumerate(embeddings):
+            if embedding is None:
+                embeddings[i] = [0.0] * 384
+        
+        return embeddings
     
     def rebuild_index(
         self,
