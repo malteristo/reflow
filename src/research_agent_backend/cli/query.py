@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 import logging
+import json
 
 # Core imports for query functionality
 from ..core.query_manager import QueryManager, QueryResult, QueryConfig
@@ -75,8 +76,46 @@ def parse_collections(collections_str: Optional[str]) -> List[str]:
         return []
     return [c.strip() for c in collections_str.split(',') if c.strip()]
 
-def format_search_results(results: List[Dict[str, Any]]) -> Table:
-    """Format search results as a rich table."""
+def format_search_results(results: List[Dict[str, Any]], query: str = "", use_rich: bool = True) -> Table:
+    """Format search results as a rich table or enhanced markdown."""
+    if use_rich:
+        from ..services.result_formatter import format_results_for_cli, create_result_markdown
+        
+        try:
+            # Use the new result formatter for enhanced presentation
+            formatted_results = format_results_for_cli(results, query, use_colors=True)
+            
+            # Create a rich table with enhanced information
+            table = Table(title=f"Search Results for: {query}" if query else "Search Results")
+            table.add_column("Rank", justify="right", style="bold green", width=4)
+            table.add_column("Relevance", justify="center", style="bright_yellow", width=12)
+            table.add_column("Content", style="white", width=60)
+            table.add_column("Source", style="cyan", width=20)
+            
+            for i, formatted_result in enumerate(formatted_results):
+                rank = str(i + 1)
+                relevance_info = formatted_result.relevance_info
+                relevance_display = f"{relevance_info.get('icon', '📄')} {relevance_info.get('label', 'Unknown')}"
+                
+                # Truncate content for table display
+                content = formatted_result.content
+                if len(content) > 200:
+                    content = content[:200] + "..."
+                
+                # Source information
+                source_doc = formatted_result.raw_result.get('document_id', 'Unknown')
+                collection = formatted_result.raw_result.get('collection', 'default')
+                source_display = f"{collection}/{source_doc}"
+                
+                table.add_row(rank, relevance_display, content, source_display)
+            
+            return table
+            
+        except Exception as e:
+            logger.warning(f"Enhanced formatting failed, using basic table: {e}")
+            # Fallback to basic formatting
+            
+    # Basic table formatting (fallback)
     table = Table(title="Search Results")
     table.add_column("Score", justify="right", style="green")
     table.add_column("Document", style="cyan")
@@ -174,7 +213,7 @@ def search(
         
         # Display results
         if result.results:
-            results_table = format_search_results(result.results)
+            results_table = format_search_results(result.results, query)
             console.print(results_table)
             
             rprint(f"\n[green]Found {len(result.results)} results[/green]")
@@ -514,7 +553,7 @@ def find_similar(
                     )
                     
                     # Display results
-                    results_table = format_search_results(ranked_results)
+                    results_table = format_search_results(ranked_results, document_id)
                     console.print(results_table)
                     
                     rprint(f"\n[green]Found {len(ranked_results)} similar documents[/green]")
@@ -763,5 +802,148 @@ def query_history(
         
     except Exception as e:
         logger.error(f"History retrieval failed: {e}")
+        rprint(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@query_app.command("enhanced")
+def enhanced_search(
+    query: str = typer.Argument(..., help="Search query"),
+    collections: Optional[str] = typer.Option(
+        None,
+        "--collections",
+        "-c",
+        help="Comma-separated list of collections to search"
+    ),
+    top_k: int = typer.Option(
+        10,
+        "--top-k",
+        "-k",
+        help="Number of results to return"
+    ),
+    output_format: str = typer.Option(
+        "markdown",
+        "--format",
+        "-f",
+        help="Output format: markdown, json, table"
+    ),
+    compact: bool = typer.Option(
+        False,
+        "--compact",
+        help="Use compact display mode"
+    ),
+) -> None:
+    """
+    Enhanced search with rich result formatting.
+    
+    Demonstrates the new result formatting capabilities including:
+    - Keyword highlighting in content
+    - Relevance score visualization with icons
+    - Rich metadata display with document structure
+    - Source information with collection context
+    - User feedback UI elements
+    
+    Example:
+        research-agent query enhanced "machine learning algorithms" --format markdown
+    """
+    try:
+        from ..services.result_formatter import (
+            format_results_for_cursor, 
+            create_result_markdown,
+            ResultFormatter,
+            FormattingOptions,
+            DisplayFormat
+        )
+        
+        # Get components
+        query_manager = get_query_manager()
+        rag_engine = get_rag_engine()
+        
+        # Parse collections
+        collection_list = parse_collections(collections)
+        
+        # Parse query context
+        query_context = rag_engine.parse_query_context(query)
+        
+        # Generate query embedding
+        query_embedding = rag_engine.generate_query_embedding(query_context)
+        
+        # Configure search
+        config = QueryConfig(
+            max_results=top_k,
+            similarity_threshold=0.0
+        )
+        
+        # Perform search
+        result = query_manager.similarity_search(
+            query_embedding=query_embedding,
+            collections=collection_list or ["default"],
+            config=config
+        )
+        
+        # Apply re-ranking
+        if result.results:
+            result.results = rag_engine.apply_reranking(
+                query=query,
+                candidates=result.results,
+                top_n=top_k
+            )
+        
+        # Enhanced formatting
+        if result.results:
+            if output_format == "json":
+                # Format for JSON output
+                formatted_results = format_results_for_cursor(result.results, query, compact)
+                output_data = {
+                    "query": query,
+                    "total_results": len(formatted_results),
+                    "results": [
+                        {
+                            "rank": i + 1,
+                            "content": fr.content,
+                            "relevance": fr.relevance_info,
+                            "metadata": fr.raw_result.get("metadata", {}),
+                            "source": fr.raw_result.get("document_id", ""),
+                            "collection": fr.raw_result.get("collection", ""),
+                            "header_path": fr.raw_result.get("header_path", ""),
+                            "highlights_count": fr.highlights_count,
+                            "content_truncated": fr.content_truncated
+                        }
+                        for i, fr in enumerate(formatted_results)
+                    ]
+                }
+                rprint(json.dumps(output_data, indent=2))
+                
+            elif output_format == "table":
+                # Enhanced table format
+                results_table = format_search_results(result.results, query, use_rich=True)
+                console.print(results_table)
+                
+            else:  # markdown format
+                # Full markdown format with all features
+                formatted_results = format_results_for_cursor(result.results, query, compact)
+                
+                # Create comprehensive markdown output
+                formatter = ResultFormatter()
+                summary = formatter.format_query_summary(formatted_results, query, len(result.results))
+                
+                # Print summary
+                console.print(Panel(summary, title="Query Summary", border_style="blue"))
+                
+                # Print each result in detail
+                console.print("\n## Detailed Results\n")
+                
+                for i, formatted_result in enumerate(formatted_results):
+                    result_markdown = create_result_markdown(formatted_result, i + 1)
+                    console.print(result_markdown)
+                    
+                    # Add separator between results
+                    if i < len(formatted_results) - 1:
+                        console.print("") 
+        else:
+            rprint("[yellow]No results found[/yellow]")
+            
+    except Exception as e:
+        logger.error(f"Enhanced search failed: {e}")
         rprint(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) 
