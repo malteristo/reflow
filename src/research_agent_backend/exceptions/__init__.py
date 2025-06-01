@@ -26,15 +26,47 @@ from .vector_store_exceptions import (
     EmbeddingDimensionError,
 )
 
+from .query_exceptions import (
+    QueryManagerError,
+    QueryOptimizationError,
+    PaginationError,
+    FilterValidationError,
+    PerformanceError,
+    CacheError,
+)
+
+from .project_exceptions import (
+    ProjectError,
+    ProjectNotFoundError,
+    ProjectAlreadyExistsError,
+    CollectionAlreadyLinkedError,
+    CollectionNotLinkedError,
+    ProjectContextError,
+    ProjectMetadataError,
+)
+
+# Import new comprehensive system exceptions
+from .system_exceptions import (
+    ResearchAgentError,
+    ConfigurationSystemError,
+    DatabaseSystemError,
+    ModelSystemError,
+    FileSystemError,
+    NetworkSystemError,
+    ErrorSeverity,
+    ErrorContext,
+    ErrorRecoveryAction,
+)
+
 __all__ = [
-    # Configuration exceptions
+    # Legacy configuration exceptions
     "ConfigurationError",
     "ConfigurationFileNotFoundError", 
     "ConfigurationValidationError",
     "EnvironmentVariableError",
     "ConfigurationSchemaError",
     "ConfigurationMergeError",
-    # Vector store exceptions
+    # Legacy vector store exceptions
     "VectorStoreError",
     "CollectionNotFoundError",
     "CollectionAlreadyExistsError",
@@ -44,4 +76,29 @@ __all__ = [
     "DatabaseInitializationError",
     "MetadataValidationError",
     "EmbeddingDimensionError",
+    # Legacy query exceptions
+    "QueryManagerError",
+    "QueryOptimizationError",
+    "PaginationError",
+    "FilterValidationError",
+    "PerformanceError",
+    "CacheError",
+    # Legacy project exceptions
+    "ProjectError",
+    "ProjectNotFoundError",
+    "ProjectAlreadyExistsError",
+    "CollectionAlreadyLinkedError",
+    "CollectionNotLinkedError",
+    "ProjectContextError",
+    "ProjectMetadataError",
+    # New comprehensive system exceptions
+    "ResearchAgentError",
+    "ConfigurationSystemError",
+    "DatabaseSystemError",
+    "ModelSystemError",
+    "FileSystemError",
+    "NetworkSystemError",
+    "ErrorSeverity",
+    "ErrorContext",
+    "ErrorRecoveryAction",
 ] 
