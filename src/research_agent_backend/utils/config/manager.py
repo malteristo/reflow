@@ -21,6 +21,7 @@ from ...exceptions.config_exceptions import (
     ConfigurationValidationError,
     ConfigurationSchemaError,
     ConfigurationMergeError,
+    ConfigurationMigrationError,
     EnvironmentVariableError,
 )
 from .paths import ConfigPaths
@@ -28,6 +29,7 @@ from .file_operations import FileOperations
 from .schema_validation import SchemaValidator
 from .inheritance import ConfigInheritance
 from .environment import EnvironmentHandler
+from .migration import ConfigurationMigrator, ConfigurationValidator, MigrationResult
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ class ConfigManager:
         config_file: Optional[str] = None,
         project_root: Optional[Union[str, Path]] = None,
         load_env: bool = True,
+        auto_migrate: bool = True,
     ) -> None:
         """
         Initialize the ConfigManager.
@@ -58,14 +61,17 @@ class ConfigManager:
             config_file: Path to main configuration file (default: researchagent.config.json)
             project_root: Project root directory (default: current working directory)
             load_env: Whether to load environment variables from .env file
+            auto_migrate: Whether to automatically migrate old configuration versions
         """
         self.project_root = Path(project_root or os.getcwd()).resolve()
         self.config_file = config_file or ConfigPaths.DEFAULT_CONFIG_FILE
         self.paths = ConfigPaths()
+        self.auto_migrate = auto_migrate
         
         # Configuration data
         self._config: Dict[str, Any] = {}
         self._loaded = False
+        self._migration_warnings: List[str] = []
         
         # Set up logging
         self.logger = logger
@@ -75,6 +81,10 @@ class ConfigManager:
         self.schema_validator = SchemaValidator(self.file_ops, self.paths)
         self.inheritance = ConfigInheritance(self.file_ops, self.paths)
         self.env_handler = EnvironmentHandler()
+        
+        # Initialize migration components
+        self.migrator = ConfigurationMigrator(self.file_ops, self.paths)
+        self.validator = ConfigurationValidator(self.file_ops, self.paths, self.migrator)
         
         # Load environment variables if requested
         if load_env:
@@ -98,7 +108,7 @@ class ConfigManager:
         validate: bool = True
     ) -> Dict[str, Any]:
         """
-        Load configuration from all sources.
+        Load configuration from all sources with automatic migration support.
         
         Args:
             force_reload: Force reloading even if already loaded
@@ -110,6 +120,7 @@ class ConfigManager:
         Raises:
             ConfigurationError: If loading fails
             ConfigurationValidationError: If validation fails
+            ConfigurationMigrationError: If migration fails
         """
         if self._loaded and not force_reload:
             self.logger.debug("Configuration already loaded, returning cached version")
@@ -118,6 +129,9 @@ class ConfigManager:
         self.logger.info(f"Loading configuration from {self.config_file}")
         
         try:
+            # Reset migration warnings
+            self._migration_warnings = []
+            
             # Load main configuration file
             main_config_path = self.file_ops.resolve_path(self.config_file)
             self.logger.debug(f"Loading main configuration file: {main_config_path}")
@@ -133,15 +147,24 @@ class ConfigManager:
             
             # Apply environment variable overrides
             self.logger.debug("Applying environment variable overrides")
-            self._config = self.env_handler.apply_environment_overrides(merged_config)
+            pre_validation_config = self.env_handler.apply_environment_overrides(merged_config)
             
-            # Validate configuration if requested
+            # Validate and migrate configuration if needed
             if validate:
-                self.logger.debug("Validating configuration against schema")
-                self.schema_validator.validate_config_against_schema(
-                    self._config, 
-                    config_file=self.config_file
+                self.logger.debug("Validating and migrating configuration")
+                validated_config, warnings = self.validator.validate_and_migrate(
+                    pre_validation_config,
+                    config_file=self.config_file,
+                    auto_migrate=self.auto_migrate
                 )
+                self._config = validated_config
+                self._migration_warnings = warnings
+                
+                # Log migration warnings
+                for warning in warnings:
+                    self.logger.warning(f"Configuration: {warning}")
+            else:
+                self._config = pre_validation_config
             
             # Mark as loaded
             self._loaded = True
@@ -149,8 +172,8 @@ class ConfigManager:
             
             return deepcopy(self._config)
             
-        except (ConfigurationValidationError, ConfigurationSchemaError, ConfigurationMergeError) as e:
-            # Re-raise validation and merge errors as-is with logging
+        except (ConfigurationValidationError, ConfigurationSchemaError, ConfigurationMergeError, ConfigurationMigrationError) as e:
+            # Re-raise configuration errors as-is with logging
             self.logger.error(f"Configuration loading failed: {e}")
             self._loaded = False
             raise
@@ -402,4 +425,120 @@ class ConfigManager:
         Raises:
             EnvironmentVariableError: If any required variables are missing
         """
-        return self.env_handler.validate_required_env_vars(required_vars) 
+        return self.env_handler.validate_required_env_vars(required_vars)
+    
+    # Configuration Migration Methods
+    
+    @property
+    def migration_warnings(self) -> List[str]:
+        """Get warnings from the last configuration migration."""
+        return self._migration_warnings.copy()
+    
+    def get_config_version(self) -> str:
+        """
+        Get the version of the currently loaded configuration.
+        
+        Returns:
+            Configuration version string
+        """
+        config = self.config
+        return self.migrator.detect_config_version(config)
+    
+    def needs_migration(self) -> bool:
+        """
+        Check if the current configuration needs migration.
+        
+        Returns:
+            True if migration is needed
+        """
+        config = self.config
+        return self.migrator.needs_migration(config)
+    
+    def migrate_config_file(
+        self,
+        target_version: Optional[str] = None,
+        create_backup: bool = True
+    ) -> MigrationResult:
+        """
+        Migrate the configuration file to target version.
+        
+        Args:
+            target_version: Target version (defaults to current)
+            create_backup: Whether to create backup before migration
+            
+        Returns:
+            Migration result with details
+            
+        Raises:
+            ConfigurationMigrationError: If migration fails
+        """
+        config_path = self.file_ops.resolve_path(self.config_file)
+        result = self.migrator.migrate_config_file(
+            config_path,
+            target_version,
+            create_backup
+        )
+        
+        # Reload configuration after migration
+        if result.success:
+            self.reload_config()
+        
+        return result
+    
+    def create_config_backup(self, backup_suffix: Optional[str] = None) -> str:
+        """
+        Create a backup of the current configuration file.
+        
+        Args:
+            backup_suffix: Optional suffix for backup filename
+            
+        Returns:
+            Path to created backup file
+            
+        Raises:
+            ConfigurationError: If backup creation fails
+        """
+        config_path = self.file_ops.resolve_path(self.config_file)
+        return self.migrator.create_backup(config_path, backup_suffix)
+    
+    def restore_config_backup(self, backup_path: Union[str, Path]) -> None:
+        """
+        Restore configuration from backup.
+        
+        Args:
+            backup_path: Path to backup file
+            
+        Raises:
+            ConfigurationError: If restore fails
+        """
+        config_path = self.file_ops.resolve_path(self.config_file)
+        self.migrator.restore_backup(backup_path, config_path)
+        
+        # Reload configuration after restore
+        self.reload_config()
+    
+    def save_config(self, config_path: Optional[Union[str, Path]] = None) -> None:
+        """
+        Save the current in-memory configuration to file.
+        
+        Args:
+            config_path: Path to save configuration (defaults to current config file)
+            
+        Raises:
+            ConfigurationError: If saving fails
+        """
+        if not self._loaded:
+            raise ConfigurationError("No configuration loaded to save")
+        
+        target_path = config_path or self.file_ops.resolve_path(self.config_file)
+        
+        try:
+            with open(target_path, 'w') as f:
+                json.dump(self._config, f, indent=2)
+            
+            self.logger.info(f"Configuration saved to: {target_path}")
+            
+        except Exception as e:
+            error_msg = f"Failed to save configuration: {e}"
+            self.logger.error(error_msg)
+            raise ConfigurationError(error_msg) from e 

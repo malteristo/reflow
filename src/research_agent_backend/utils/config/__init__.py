@@ -6,6 +6,7 @@ This package provides a modular configuration system with support for:
 - Configuration inheritance
 - Default value resolution
 - Path management and file operations
+- Configuration migration and versioning
 
 Usage:
     from research_agent_backend.utils.config import ConfigManager
@@ -20,6 +21,12 @@ from .file_operations import FileOperations
 from .schema_validation import SchemaValidator
 from .inheritance import ConfigInheritance
 from .environment import EnvironmentHandler
+from .migration import (
+    ConfigurationMigrator,
+    ConfigurationValidator,
+    MigrationResult,
+    ConfigVersion,
+)
 
 # Backward compatibility: expose ConfigManager as the main interface
 __all__ = [
@@ -28,7 +35,11 @@ __all__ = [
     'FileOperations',
     'SchemaValidator',
     'ConfigInheritance',
-    'EnvironmentHandler'
+    'EnvironmentHandler',
+    'ConfigurationMigrator',
+    'ConfigurationValidator',
+    'MigrationResult',
+    'ConfigVersion',
 ]
 
 # Legacy import support for existing code

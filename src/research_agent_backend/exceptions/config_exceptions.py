@@ -209,4 +209,53 @@ class ConfigurationMergeError(ConfigurationError):
         
         super().__init__(message, None, suggestions)
         self.source_files = source_files or []
-        self.conflicting_keys = conflicting_keys or [] 
+        self.conflicting_keys = conflicting_keys or []
+
+
+class ConfigurationMigrationError(ConfigurationError):
+    """Exception raised when configuration migration fails."""
+    
+    def __init__(
+        self,
+        message: str,
+        from_version: Optional[str] = None,
+        to_version: Optional[str] = None,
+        migration_errors: Optional[List[str]] = None
+    ) -> None:
+        """
+        Initialize migration error.
+        
+        Args:
+            message: Error description
+            from_version: Source configuration version
+            to_version: Target configuration version
+            migration_errors: List of migration-specific errors
+        """
+        suggestions = [
+            "Check configuration version compatibility",
+            "Ensure all required fields are present",
+            "Review migration rules for version changes",
+            "Consider manual configuration updates",
+        ]
+        
+        if from_version and to_version:
+            suggestions.append(f"Migration path: {from_version} → {to_version}")
+        
+        super().__init__(message, None, suggestions)
+        self.from_version = from_version
+        self.to_version = to_version
+        self.migration_errors = migration_errors or []
+    
+    def __str__(self) -> str:
+        """Return formatted migration error with details."""
+        msg = super().__str__()
+        
+        if self.from_version and self.to_version:
+            msg += f"\nMigration: {self.from_version} → {self.to_version}"
+        
+        if self.migration_errors:
+            msg += "\n\nMigration errors:"
+            for i, error in enumerate(self.migration_errors, 1):
+                msg += f"\n  {i}. {error}"
+        
+        return msg 
