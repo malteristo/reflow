@@ -37,6 +37,25 @@ kb_app = typer.Typer(
     rich_markup_mode="rich",
 )
 
+# Import and register augmentation commands
+from .augmentation import (
+    add_external_result,
+    add_research_report,
+    update_document,
+    merge_duplicates,
+    feedback,
+    feedback_analytics,
+    export_feedback
+)
+
+# Register augmentation commands with the kb_app
+kb_app.command("add-external-result")(add_external_result)
+kb_app.command("add-research-report")(add_research_report)
+kb_app.command("update-document")(update_document)
+kb_app.command("merge-duplicates")(merge_duplicates)
+kb_app.command("feedback")(feedback)
+kb_app.command("feedback-analytics")(feedback_analytics)
+kb_app.command("export-feedback")(export_feedback)
 
 class KnowledgeBaseError(Exception):
     """Base exception for knowledge base operations."""
