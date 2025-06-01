@@ -35,6 +35,18 @@ class CircuitBreakerState(Enum):
 
 
 @dataclass
+class ErrorHandlerConfig:
+    """Configuration for enhanced error handler."""
+    enable_monitoring: bool = True
+    enable_security_features: bool = True
+    enable_rate_limiting: bool = True
+    max_recent_errors: int = 1000
+    circuit_breaker_threshold: int = 5
+    enable_retry_logic: bool = True
+    enable_circuit_breaker: bool = True
+
+
+@dataclass
 class ErrorMetrics:
     """Error metrics for monitoring and observability."""
     total_errors: int = 0
@@ -97,31 +109,54 @@ class EnhancedErrorHandler:
     
     def __init__(
         self,
+        config: Optional[ErrorHandlerConfig] = None,
         circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
         rate_limit_config: Optional[RateLimitConfig] = None,
         retry_config: Optional[RetryConfig] = None,
-        enable_security_features: bool = True,
-        enable_monitoring: bool = True
+        enable_security_features: Optional[bool] = None,
+        enable_monitoring: Optional[bool] = None,
+        enable_rate_limiting: Optional[bool] = None
     ):
         """
         Initialize enhanced error handler.
         
         Args:
+            config: Main error handler configuration
             circuit_breaker_config: Circuit breaker configuration
             rate_limit_config: Rate limiting configuration
             retry_config: Retry logic configuration
-            enable_security_features: Enable security error handling
-            enable_monitoring: Enable error monitoring and metrics
+            enable_security_features: Enable security error handling (overrides config)
+            enable_monitoring: Enable error monitoring and metrics (overrides config)
+            enable_rate_limiting: Enable rate limiting (overrides config)
         """
+        # Use provided config or default
+        self.config = config or ErrorHandlerConfig()
+        
+        # Override config values with explicit parameters if provided
+        self.enable_security_features = (
+            enable_security_features 
+            if enable_security_features is not None 
+            else self.config.enable_security_features
+        )
+        self.enable_monitoring = (
+            enable_monitoring 
+            if enable_monitoring is not None 
+            else self.config.enable_monitoring
+        )
+        self.enable_rate_limiting = (
+            enable_rate_limiting 
+            if enable_rate_limiting is not None 
+            else self.config.enable_rate_limiting
+        )
+        
+        # Initialize sub-configurations
         self.circuit_breaker_config = circuit_breaker_config or CircuitBreakerConfig()
         self.rate_limit_config = rate_limit_config or RateLimitConfig()
         self.retry_config = retry_config or RetryConfig()
-        self.enable_security_features = enable_security_features
-        self.enable_monitoring = enable_monitoring
         
-        # Error tracking and metrics
+        # Error tracking and metrics - use config max_recent_errors
         self.error_metrics = ErrorMetrics()
-        self.recent_errors = deque(maxlen=1000)
+        self.recent_errors = deque(maxlen=self.config.max_recent_errors)
         self.error_correlation_map: Dict[str, List[str]] = defaultdict(list)
         
         # Circuit breaker state
@@ -139,6 +174,62 @@ class EnhancedErrorHandler:
         self.suspicious_patterns: Dict[str, int] = defaultdict(int)
         
         logger.info("Enhanced error handler initialized with production features")
+    
+    @property
+    def circuit_breaker_state(self) -> str:
+        """Get the overall circuit breaker state (for simple access in tests)."""
+        # Return the most restrictive state across all operations
+        states = []
+        for cb_data in self.circuit_breakers.values():
+            if cb_data.get("state") == CircuitBreakerState.OPEN:
+                return "open"
+            elif cb_data.get("state") == CircuitBreakerState.HALF_OPEN:
+                states.append("half_open")
+            else:
+                states.append("closed")
+        
+        # Return most restrictive state found
+        if "half_open" in states:
+            return "half_open"
+        return "closed"
+    
+    def add_monitoring_hook(
+        self,
+        name: str,
+        callback: Callable[[Dict[str, Any]], None],
+        severity_filter: Optional[List[str]] = None,
+        category_filter: Optional[List[str]] = None
+    ) -> None:
+        """
+        Add a monitoring hook for error notifications.
+        
+        Args:
+            name: Hook name for identification
+            callback: Function to call with error data
+            severity_filter: List of severities to filter on
+            category_filter: List of categories to filter on
+        """
+        # Convert the test-friendly callback to match the existing register method
+        def mcp_callback(exception: MCPException) -> None:
+            error_data = {
+                "message": exception.message,
+                "severity": exception.severity,
+                "category": exception.category,
+                "correlation_id": exception.correlation_id,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            callback(error_data)
+        
+        # Convert string filters to enums if needed
+        severity_enum_filter = None
+        if severity_filter:
+            severity_enum_filter = [ErrorSeverity(s) for s in severity_filter if hasattr(ErrorSeverity, s.upper())]
+        
+        category_enum_filter = None
+        if category_filter:
+            category_enum_filter = [ErrorCategory(c) for c in category_filter if hasattr(ErrorCategory, c.upper())]
+        
+        self.register_monitoring_hook(name, mcp_callback, severity_enum_filter, category_enum_filter)
     
     def handle_exception(
         self,

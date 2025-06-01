@@ -62,8 +62,9 @@ class ErrorMiddleware:
         
         # Request tracking
         self.active_requests: Dict[str, Dict[str, Any]] = {}
+        self.total_requests = 0  # Add total request counter
         
-        logger.info("Error middleware initialized")
+        logger.info("Error middleware initialized with production features")
     
     def capture_errors(
         self,
@@ -151,9 +152,13 @@ class ErrorMiddleware:
         request_context: dict
     ) -> Any:
         """Execute async function with error context."""
-        # Enrich kwargs with context if needed
+        # Enrich kwargs with context if needed and function can accept it
         if self.config.enrich_context:
-            kwargs['_error_context'] = request_context
+            import inspect
+            sig = inspect.signature(func)
+            # Only inject context if function has **kwargs or explicitly accepts _error_context
+            if any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()) or '_error_context' in sig.parameters:
+                kwargs['_error_context'] = request_context
         
         return await func(*args, **kwargs)
     
@@ -165,9 +170,13 @@ class ErrorMiddleware:
         request_context: dict
     ) -> Any:
         """Execute sync function with error context."""
-        # Enrich kwargs with context if needed
+        # Enrich kwargs with context if needed and function can accept it
         if self.config.enrich_context:
-            kwargs['_error_context'] = request_context
+            import inspect
+            sig = inspect.signature(func)
+            # Only inject context if function has **kwargs or explicitly accepts _error_context
+            if any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()) or '_error_context' in sig.parameters:
+                kwargs['_error_context'] = request_context
         
         return func(*args, **kwargs)
     
@@ -289,6 +298,9 @@ class ErrorMiddleware:
         kwargs: dict
     ) -> Dict[str, Any]:
         """Start tracking a request."""
+        # Increment total request counter
+        self.total_requests += 1
+        
         request_context = {
             'correlation_id': correlation_id,
             'operation_name': operation_name,
@@ -422,6 +434,7 @@ class ErrorMiddleware:
         """Get middleware statistics."""
         return {
             "active_requests": len(self.active_requests),
+            "total_requests": self.total_requests,
             "config": {
                 "auto_capture": self.config.auto_capture,
                 "enrich_context": self.config.enrich_context,
