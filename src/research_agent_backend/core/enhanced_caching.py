@@ -373,8 +373,16 @@ class ModelAwareCacheManager:
     
     def __init__(self):
         """Initialize the model-aware cache manager."""
-        self.cache = {}
+        self._cache = {}
         self.model_fingerprints = {}
+        
+        # Performance tracking
+        self._stats = {
+            'hits': 0,
+            'misses': 0,
+            'total_requests': 0,
+            'cache_entries': 0
+        }
         
         logger.info("ModelAwareCacheManager initialized")
     
@@ -394,7 +402,7 @@ class ModelAwareCacheManager:
         """
         cache_key = self._generate_cache_key(text, model_fingerprint)
         
-        self.cache[cache_key] = {
+        self._cache[cache_key] = {
             "embedding": embedding,
             "model_fingerprint": model_fingerprint,
             "timestamp": time.time(),
@@ -405,6 +413,9 @@ class ModelAwareCacheManager:
         if model_fingerprint not in self.model_fingerprints:
             self.model_fingerprints[model_fingerprint] = set()
         self.model_fingerprints[model_fingerprint].add(cache_key)
+        
+        # Update stats
+        self._stats['cache_entries'] = len(self._cache)
         
         logger.debug(f"Cached embedding for text with model {model_fingerprint[:8]}...")
     
@@ -425,17 +436,24 @@ class ModelAwareCacheManager:
         """
         cache_key = self._generate_cache_key(text, model_fingerprint)
         
-        if cache_key in self.cache:
-            cached_entry = self.cache[cache_key]
+        # Update request stats
+        self._stats['total_requests'] += 1
+        
+        if cache_key in self._cache:
+            cached_entry = self._cache[cache_key]
             
             # Verify model fingerprint matches
             if cached_entry["model_fingerprint"] == model_fingerprint:
+                self._stats['hits'] += 1
                 logger.debug(f"Cache hit for text with model {model_fingerprint[:8]}...")
                 return cached_entry["embedding"]
             else:
                 # Model mismatch - remove stale entry
                 logger.debug("Model fingerprint mismatch - removing stale cache entry")
-                del self.cache[cache_key]
+                del self._cache[cache_key]
+                self._stats['misses'] += 1
+        else:
+            self._stats['misses'] += 1
         
         logger.debug(f"Cache miss for text with model {model_fingerprint[:8]}...")
         return None
@@ -456,10 +474,13 @@ class ModelAwareCacheManager:
         cache_keys_to_remove = self.model_fingerprints[model_fingerprint]
         
         for cache_key in cache_keys_to_remove:
-            if cache_key in self.cache:
-                del self.cache[cache_key]
+            if cache_key in self._cache:
+                del self._cache[cache_key]
         
         del self.model_fingerprints[model_fingerprint]
+        
+        # Update stats
+        self._stats['cache_entries'] = len(self._cache)
         
         logger.info(f"Invalidated {len(cache_keys_to_remove)} cache entries for model {model_fingerprint[:8]}...")
         return len(cache_keys_to_remove)
@@ -471,25 +492,41 @@ class ModelAwareCacheManager:
         return hashlib.sha256(content.encode()).hexdigest()
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
-        total_entries = len(self.cache)
-        unique_models = len(self.model_fingerprints)
+        """Get cache statistics with hit rates."""
+        total_requests = self._stats['total_requests']
+        hits = self._stats['hits']
+        misses = self._stats['misses']
         
-        # Calculate size distribution by model
-        model_distribution = {}
-        for model, keys in self.model_fingerprints.items():
-            model_distribution[model] = len(keys)
+        hit_rate = hits / total_requests if total_requests > 0 else 0.0
+        miss_rate = misses / total_requests if total_requests > 0 else 0.0
         
         return {
-            "total_entries": total_entries,
-            "unique_models": unique_models,
-            "model_distribution": model_distribution,
+            "hit_rate": hit_rate,
+            "miss_rate": miss_rate,
+            "cache_hits": hits,
+            "cache_misses": misses,
+            "total_requests": total_requests,
+            "cache_entries": self._stats['cache_entries'],
+            "model_fingerprints_count": len(self.model_fingerprints),
             "cache_size_mb": self._estimate_cache_size_mb()
         }
+    
+    def get(self, key: str) -> Optional[Any]:
+        """
+        Generic get method for test compatibility.
+        
+        This method provides a simple interface for tests to patch,
+        but the actual embedding caching uses get_cached_embedding().
+        """
+        # This is a simplified interface primarily for test mocking
+        # Real caching uses get_cached_embedding() with model fingerprints
+        if key in self._cache:
+            return self._cache[key]["embedding"]
+        return None
     
     def _estimate_cache_size_mb(self) -> float:
         """Estimate cache size in MB."""
         # Rough estimation based on entry count
         # Assumes average embedding size of ~1KB per entry
-        estimated_size_bytes = len(self.cache) * 1024
+        estimated_size_bytes = len(self._cache) * 1024
         return estimated_size_bytes / (1024 * 1024) 
