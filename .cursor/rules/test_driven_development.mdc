@@ -19,7 +19,78 @@ When working on subtasks, follow this TDD-integrated workflow:
 5. **Update Subtask**: Document implementation (`update_subtask --id=X.Y --prompt="GREEN PHASE: Implemented minimal solution..."`)
 6. **Refactor Phase**: Clean up code while maintaining green tests
 7. **Update Subtask**: Document refactoring (`update_subtask --id=X.Y --prompt="REFACTOR PHASE: Enhanced implementation..."`)
-8. **Complete Subtask** (`set_task_status --id=X.Y --status=done`)
+8. **Architectural Phase (NEW)**: Check file sizes and extract modules if needed
+9. **Update Subtask**: Document architectural changes (`update_subtask --id=X.Y --prompt="ARCHITECTURAL PHASE: Extracted modules..."`)
+10. **Complete Subtask** (`set_task_status --id=X.Y --status=done`)
+
+### **Enhanced TDD Phases**
+
+- **RED Phase (Write Failing Tests):**
+  ```python
+  # ✅ DO: Write comprehensive failing tests first
+  def test_document_processing_with_markdown():
+      # Test should fail initially
+      with pytest.raises(NotImplementedError):
+          processor.process_markdown(sample_doc)
+  ```
+
+- **GREEN Phase (Minimal Implementation):**
+  ```python
+  # ✅ DO: Implement just enough to pass tests
+  def process_markdown(self, doc: str) -> ProcessedDocument:
+      # Minimal implementation to pass tests
+      if not doc:
+          raise ValueError("Document required")
+      return ProcessedDocument(content=doc)
+  ```
+
+- **REFACTOR Phase (Code Quality):**
+  ```python
+  # ✅ DO: Improve code quality while maintaining green tests
+  def process_markdown(self, doc: str) -> ProcessedDocument:
+      # Enhanced implementation with better error handling
+      self._validate_input(doc)
+      parsed = self._parse_markdown(doc)
+      return self._create_processed_document(parsed)
+  ```
+
+- **ARCHITECTURAL Phase (NEW - File Organization):**
+  ```bash
+  # ✅ DO: Check file sizes after refactoring
+  wc -l src/core/document_processor.py  # Check if > 300 lines
+  
+  # If file too large, extract modules:
+  # - Extract utilities to utils/
+  # - Split classes into separate files
+  # - Maintain test coverage during extraction
+  ```
+
+### **File Size Integration with TDD**
+
+- **Size Monitoring During TDD:**
+  ```python
+  # ✅ DO: Monitor file size during each TDD phase
+  # After GREEN phase: Check if implementation adds significant lines
+  # After REFACTOR phase: Check if refactoring increased size
+  # ARCHITECTURAL phase: Extract modules if file > 300 lines
+  
+  # ❌ DON'T: Let files grow beyond 500 lines without extraction
+  # ❌ DON'T: Skip architectural refactoring for "just this once"
+  ```
+
+- **Test Organization with Module Extraction:**
+  ```python
+  # ✅ DO: Align test structure with code modules
+  # Before extraction:
+  tests/core/test_document_processor.py
+  
+  # After extraction:
+  tests/core/document_processor/
+  ├── test_markdown_parser.py
+  ├── test_chunking_engine.py
+  ├── test_atomic_units.py
+  └── test_metadata_extractor.py
+  ```
 
 ### **Test Execution Commands**
 ```bash
@@ -28,22 +99,104 @@ python scripts/test_runner.py red     # Run failing tests (Red phase)
 python scripts/test_runner.py green   # Run minimal implementation tests  
 python scripts/test_runner.py unit    # Run all unit tests (Refactor phase)
 python scripts/test_runner.py coverage # Verify coverage requirements
+
+# NEW: File size monitoring commands
+find src -name "*.py" -exec wc -l {} \; | sort -nr | head -5  # Check largest files
 ```
 
-## **Task Completion Criteria**
+## **Task Completion Criteria (Updated)**
 
 A task/subtask is only complete when:
 1. ✅ All tests written (Red phase)
 2. ✅ All tests passing (Green phase)  
 3. ✅ Code refactored and optimized (Refactor phase)
-4. ✅ Test coverage meets requirements (95%+)
-5. ✅ Integration tests verify end-to-end functionality
-6. ✅ TaskMaster subtask updated with implementation notes
+4. ✅ **NEW**: File size limits respected (Architectural phase)
+5. ✅ **NEW**: Modules extracted if file > 300 lines (Architectural phase)
+6. ✅ Test coverage meets requirements (95%+)
+7. ✅ Integration tests verify end-to-end functionality
+8. ✅ TaskMaster subtask updated with implementation notes
+
+## **Architectural Refactoring in TDD Context**
+
+- **When to Extract Modules:**
+  ```python
+  # ✅ DO: Extract when file reaches size thresholds
+  # - 300+ lines: Plan extraction
+  # - 500+ lines: Mandatory extraction
+  # - Multiple classes: Consider separation
+  # - Utility functions: Move to utils/
+  
+  # Example extraction from large TDD file:
+  # Original: test_document_processor.py (800+ lines)
+  # Extracted:
+  # - test_markdown_parser.py (200 lines)
+  # - test_chunking_engine.py (300 lines)
+  # - test_atomic_units.py (250 lines)
+  # - test_integration.py (150 lines)
+  ```
+
+- **Maintaining Test Coverage During Extraction:**
+  ```python
+  # ✅ DO: Ensure no coverage loss during module extraction
+  # 1. Run full test suite before extraction
+  # 2. Extract modules one at a time
+  # 3. Update imports and run tests after each extraction
+  # 4. Verify coverage remains at 95%+
+  # 5. Update TaskMaster subtask with extraction notes
+  ```
+
+## **Module Extraction TDD Process**
+
+1. **RED Phase for Extraction:**
+   - Write tests for new module structure
+   - Tests should fail initially (imports don't exist)
+
+2. **GREEN Phase for Extraction:**
+   - Create new module files
+   - Move code to satisfy imports
+   - Minimal changes to pass tests
+
+3. **REFACTOR Phase for Extraction:**
+   - Optimize imports and exports
+   - Clean up __init__.py files
+   - Improve module interfaces
+
+4. **VERIFY Phase for Extraction:**
+   - Run full test suite
+   - Verify coverage maintained
+   - Check for circular imports
 
 ## **AI Development Integration**
 
 - **Follow TDD principles** from [Testing Standards](mdc:docs/testing_standards.md)
 - **Use testing patterns** from [Testing Patterns Reference](mdc:docs/testing_patterns_reference.md)
+- **Apply file organization** from [File Organization](mdc:.cursor/rules/file_organization.mdc)
 - **Test project-specific components**: Configuration ([config.py](mdc:src/research_agent_backend/utils/config.py)), Vector Operations ([vector_store.py](mdc:src/research_agent_backend/core/vector_store.py)), CLI Commands ([cli/](mdc:src/research_agent_backend/cli))
 
-**Remember**: If you're not writing tests first, you're not following TDD. Every line of production code should be driven by a failing test.
+## **File Size Prevention Strategies**
+
+- **Proactive Monitoring:**
+  ```bash
+  # ✅ DO: Check file sizes during development
+  # Run before starting each subtask:
+  wc -l $(find src -name "*.py" | grep -E "(processor|handler|manager)" | head -5)
+  
+  # Set up development aliases:
+  alias check-sizes="find src -name '*.py' -exec wc -l {} \; | sort -nr | head -10"
+  alias check-large="find src -name '*.py' -exec wc -l {} \; | awk '$1 > 300' | sort -nr"
+  ```
+
+- **Early Warning System:**
+  ```python
+  # ✅ DO: Add file size checks to pre-commit hooks
+  # scripts/check_file_size.py
+  def check_file_sizes(max_lines=500):
+      large_files = []
+      for file in find_python_files():
+          lines = count_lines(file)
+          if lines > max_lines:
+              large_files.append((file, lines))
+      return large_files
+  ```
+
+**Remember**: If you're not writing tests first AND monitoring file size, you're not following our enhanced TDD approach. Every line of production code should be driven by a failing test, and every file should respect size limits to maintain code quality and developer efficiency.

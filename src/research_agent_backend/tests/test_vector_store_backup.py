@@ -85,12 +85,12 @@ class TestChromaDBManager:
         """Test database health check functionality."""
         health = self.manager.health_check()
         
-        assert health['status'] == 'healthy'
-        assert health['connected'] is True
-        assert health['collections_count'] == 0  # No collections initially
-        assert isinstance(health['collections'], list)
-        assert 'timestamp' in health
-        assert health['errors'] == []
+        assert health.status == 'healthy'
+        assert health.connected is True
+        assert health.collections_count == 0  # No collections initially
+        assert isinstance(health.collections, list)
+        assert 'timestamp' in health.__dict__
+        assert health.errors == []
     
     def test_create_collection(self):
         """Test collection creation."""

@@ -3,13 +3,15 @@ description: Guidelines for continuously improving Cursor rules based on emergin
 globs: **/*
 alwaysApply: true
 ---
-
 - **Rule Improvement Triggers:**
   - New code patterns not covered by existing rules
   - Repeated similar implementations across files
   - Common error patterns that could be prevented
   - New libraries or tools being used consistently
   - Emerging best practices in the codebase
+  - **NEW**: Files exceeding size thresholds (300+ lines)
+  - **NEW**: Monolithic classes with multiple responsibilities
+  - **NEW**: Module extraction patterns that worked well
 
 - **Analysis Process:**
   - Compare new code with existing rules
@@ -17,6 +19,9 @@ alwaysApply: true
   - Look for references to external documentation
   - Check for consistent error handling patterns
   - Monitor test patterns and coverage
+  - **NEW**: Track file size growth trends across development sessions
+  - **NEW**: Analyze successful module extraction strategies
+  - **NEW**: Identify architectural refactoring patterns
 
 - **Rule Updates:**
   - **Add New Rules When:**
@@ -24,12 +29,17 @@ alwaysApply: true
     - Common bugs could be prevented by a rule
     - Code reviews repeatedly mention the same feedback
     - New security or performance patterns emerge
+    - **NEW**: File size limits are repeatedly exceeded in similar ways
+    - **NEW**: Module extraction patterns emerge across components
+    - **NEW**: Architectural refactoring strategies prove successful
 
   - **Modify Existing Rules When:**
     - Better examples exist in the codebase
     - Additional edge cases are discovered
     - Related rules have been updated
     - Implementation details have changed
+    - **NEW**: File organization patterns evolve
+    - **NEW**: Module extraction strategies are refined
 
 - **Example Pattern Recognition:**
   ```typescript
@@ -45,11 +55,25 @@ alwaysApply: true
   // - Performance optimization patterns
   ```
 
+  ```python
+  # NEW: If you see repeated file size issues like:
+  # - Multiple classes in single files > 500 lines
+  # - Utility functions mixed with business logic
+  # - Similar extraction patterns across modules
+  
+  # Consider updating [file_organization.mdc](mdc:.cursor/rules/file_organization.mdc):
+  # - Common module extraction strategies
+  # - Utility function organization patterns
+  # - Class separation guidelines
+  ```
+
 - **Rule Quality Checks:**
   - Rules should be actionable and specific
   - Examples should come from actual code
   - References should be up to date
   - Patterns should be consistently enforced
+  - **NEW**: File size guidelines should include specific thresholds
+  - **NEW**: Module extraction examples should show before/after structure
 
 - **Continuous Improvement:**
   - Monitor code review comments
@@ -57,16 +81,82 @@ alwaysApply: true
   - Update rules after major refactors
   - Add links to relevant documentation
   - Cross-reference related rules
+  - **NEW**: Track file size trends and refactoring decisions
+  - **NEW**: Document successful architectural changes
+  - **NEW**: Monitor impact of module extraction on development efficiency
+
+- **File Size and Architecture Monitoring:**
+  - **Daily File Size Checks:**
+    ```bash
+    # ✅ DO: Monitor file growth during development
+    find src -name "*.py" -exec wc -l {} \; | sort -nr | head -5
+    
+    # Track files approaching thresholds
+    find src -name "*.py" -exec wc -l {} \; | awk '$1 > 250' | sort -nr
+    ```
+
+  - **Pattern Recognition for Module Extraction:**
+    ```python
+    # ✅ DO: Identify when similar extraction patterns emerge
+    # If 3+ files follow same extraction strategy:
+    # 1. Utils extraction → Create rule for utility organization
+    # 2. Class separation → Create rule for class responsibility limits  
+    # 3. Service layer extraction → Create rule for service organization
+    
+    # Example patterns to codify:
+    # - Handler classes > 200 lines → Extract to service layer
+    # - Utility functions > 5 per class → Extract to utils module
+    # - Data structures > 100 lines → Extract to models module
+    ```
+
+  - **Architectural Decision Documentation:**
+    ```markdown
+    # ✅ DO: Document architectural decisions as they emerge
+    # When module extraction succeeds:
+    # 1. Document the strategy that worked
+    # 2. Update rules with new patterns
+    # 3. Create examples for future reference
+    # 4. Note any pitfalls avoided
+    
+    # Example rule addition:
+    ## Successful Extraction Pattern: Document Processor
+    - **Before**: 5,820 lines in single file
+    - **Strategy**: Functional responsibility separation
+    - **After**: 6 focused modules (~600-800 lines each)
+    - **Key Success Factors**: 
+      - Maintained test coverage throughout
+      - Clear import hierarchy
+      - No circular dependencies
+    ```
 
 - **Rule Deprecation:**
   - Mark outdated patterns as deprecated
   - Remove rules that no longer apply
   - Update references to deprecated rules
   - Document migration paths for old patterns
+  - **NEW**: Archive file size anti-patterns that are resolved
+  - **NEW**: Remove outdated module organization strategies
 
 - **Documentation Updates:**
   - Keep examples synchronized with code
   - Update references to external docs
   - Maintain links between related rules
   - Document breaking changes
+  - **NEW**: Update file size examples with current codebase metrics
+  - **NEW**: Maintain architectural decision records
+
+- **Architectural Anti-Pattern Detection:**
+  ```python
+  # ✅ DO: Create rules to prevent detected anti-patterns
+  # Common anti-patterns to rule against:
+  # - Files > 1000 lines without extraction plan
+  # - Utility functions scattered across business logic
+  # - Classes with >15 methods without separation
+  # - Import cycles caused by poor module organization
+  
+  # Example rule creation:
+  # If pattern detected 3+ times → Create preventive rule
+  # If anti-pattern caused bugs → Create strict prohibition rule
+  ```
+
 Follow [cursor_rules.mdc](mdc:.cursor/rules/cursor_rules.mdc) for proper rule formatting and structure.

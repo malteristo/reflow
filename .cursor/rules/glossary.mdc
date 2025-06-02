@@ -12,6 +12,7 @@ This file provides a quick reference to the purpose of each rule file located in
 - **[`architecture.mdc`](mdc:.cursor/rules/architecture.mdc)**: High-level architecture patterns and component design for the Research Agent CLI application.
 - **[`cursor_rules.mdc`](mdc:.cursor/rules/cursor_rules.mdc)**: Guidelines for creating and maintaining Cursor rules to ensure consistency and effectiveness.
 - **[`dev_workflow.mdc`](mdc:.cursor/rules/dev_workflow.mdc)**: Guide for using Task Master to manage task-driven development workflows.
+- **[`file_organization.mdc`](mdc:.cursor/rules/file_organization.mdc)**: Adaptive file organization and modularity guidelines with size limits (300/500/1000 lines), dynamic restructuring strategies, emergent architecture principles, and organizational decision tracking. Prevents monolithic files while allowing flexible code organization based on actual usage patterns.
 - **[`glossary.mdc`](mdc:.cursor/rules/glossary.mdc)**: This file; provides a glossary of other Cursor rules.
 - **[`self_improve.mdc`](mdc:.cursor/rules/self_improve.mdc)**: Guidelines for continuously improving Cursor rules based on emerging code patterns and best practices.
 - **[`taskmaster.mdc`](mdc:.cursor/rules/taskmaster.mdc)**: Comprehensive reference for Taskmaster MCP tools and CLI commands.

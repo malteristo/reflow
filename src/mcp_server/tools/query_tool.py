@@ -11,8 +11,7 @@ import subprocess
 import asyncio
 from typing import Dict, List, Any, Optional
 
-from mcp_server.tools.base_tool import BaseMCPTool
-from mcp_server.validation.validation_registry import ToolValidationError
+from mcp_server.tools.base_tool import BaseMCPTool, ToolValidationError
 
 # Import the new result formatter
 from research_agent_backend.services.result_formatter import (
