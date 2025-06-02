@@ -2,7 +2,8 @@
 Cross-encoder re-ranking service for improving search result precision.
 
 Implements cross-encoder model-based re-ranking to improve the precision
-of vector search results through semantic similarity scoring.
+of vector search results through semantic similarity scoring, with enhanced
+features for keyword highlighting, source attribution, and relevance analysis.
 
 Implements FR-RQ-005, FR-RQ-008: Core query processing pipeline with re-ranking.
 """
@@ -19,6 +20,7 @@ from sentence_transformers import CrossEncoder
 
 from .config import RerankerConfig
 from .models import RankedResult
+from .utils import KeywordHighlighter, SourceAttributionExtractor, RelevanceAnalyzer
 from ..integration_pipeline.models import SearchResult
 from ...utils.config import ConfigManager
 
@@ -65,9 +67,12 @@ class RerankerService:
     Cross-encoder re-ranking service for improving search precision.
     
     Uses cross-encoder models to re-rank vector search results based on
-    semantic similarity, providing more accurate relevance scoring.
+    semantic similarity, providing more accurate relevance scoring with
+    enhanced features for keyword highlighting, source attribution, and
+    relevance confidence analysis.
     
     Implements FR-RQ-005: Core query processing pipeline with re-ranking.
+    Implements FR-RQ-008: Enhanced result presentation with highlighting and attribution.
     """
     
     def __init__(
@@ -102,6 +107,11 @@ class RerankerService:
         
         # Initialize enhanced cache if enabled
         self.cache = LRUCache(self.config.cache_size) if self.config.enable_caching else None
+        
+        # Initialize enhanced utilities for FR-RQ-008
+        self.keyword_highlighter = KeywordHighlighter()
+        self.source_extractor = SourceAttributionExtractor()
+        self.relevance_analyzer = RelevanceAnalyzer(self.keyword_highlighter)
         
         # Enhanced metrics tracking
         self.metrics = {
@@ -194,49 +204,75 @@ class RerankerService:
             # Return neutral score on error
             return 0.5
     
-    def rerank_single(self, query: str, search_result: SearchResult) -> RankedResult:
+    def rerank_single(self, query: str, search_result: SearchResult, include_enhancements: bool = True) -> RankedResult:
         """
-        Re-rank a single search result.
+        Re-rank a single search result with enhanced features.
         
         Args:
             query: Search query
-            search_result: Original search result
+            search_result: SearchResult to re-rank
+            include_enhancements: Whether to include keyword highlighting and attribution
             
         Returns:
-            RankedResult with updated scoring
+            RankedResult with enhanced features
         """
+        # Get re-ranking score
         rerank_score = self.score_pair(query, search_result.content)
         
-        return RankedResult(
+        # Create base ranked result
+        ranked_result = RankedResult(
             original_result=search_result,
             rerank_score=rerank_score,
             original_score=search_result.relevance_score,
-            rank=1,  # Default for single result
+            rank=1,
             metadata={
                 'processing_method': 'single',
                 'model_name': self.config.model_name,
                 'timestamp': time.time()
             }
         )
+        
+        # Add enhanced features if requested (FR-RQ-008)
+        if include_enhancements:
+            # Extract keywords and add highlighting
+            keywords = self.keyword_highlighter.extract_query_keywords(query)
+            highlighted_content = self.keyword_highlighter.highlight_keywords(
+                search_result.content, keywords
+            )
+            ranked_result.highlighted_content = highlighted_content
+            
+            # Extract source attribution
+            source_attribution = self.source_extractor.extract_attribution(search_result)
+            ranked_result.source_attribution = source_attribution
+            
+            # Analyze relevance indicators
+            relevance_indicators = self.relevance_analyzer.analyze_relevance(
+                query, search_result, rerank_score
+            )
+            ranked_result.relevance_indicators = relevance_indicators
+        
+        return ranked_result
     
     def rerank_results(
         self, 
         query: str, 
         candidates: List[SearchResult], 
         top_n: Optional[int] = None,
-        collect_metrics: bool = False
+        collect_metrics: bool = False,
+        include_enhancements: bool = True
     ) -> List[RankedResult]:
         """
-        Re-rank multiple search results with enhanced batch processing.
+        Re-rank multiple search results with enhanced batch processing and features.
         
         Args:
             query: Search query
             candidates: List of search results to re-rank
             top_n: Number of top results to return
             collect_metrics: Whether to collect performance metrics
+            include_enhancements: Whether to include enhanced features (FR-RQ-008)
             
         Returns:
-            List of RankedResult sorted by re-ranking score
+            List of RankedResult sorted by re-ranking score with enhanced features
         """
         if not candidates:
             return []
@@ -250,9 +286,15 @@ class RerankerService:
         try:
             scores = self._batch_score_pairs(query, working_candidates)
             
-            # Create ranked results with enhanced metadata
+            # Pre-extract keywords for batch processing efficiency
+            keywords = None
+            if include_enhancements:
+                keywords = self.keyword_highlighter.extract_query_keywords(query)
+            
+            # Create ranked results with enhanced features
             ranked_results = []
             for i, (result, score) in enumerate(zip(working_candidates, scores)):
+                # Create base ranked result
                 ranked_result = RankedResult(
                     original_result=result,
                     rerank_score=float(score),
@@ -266,6 +308,25 @@ class RerankerService:
                         'timestamp': time.time()
                     }
                 )
+                
+                # Add enhanced features if requested (FR-RQ-008)
+                if include_enhancements:
+                    # Add keyword highlighting
+                    highlighted_content = self.keyword_highlighter.highlight_keywords(
+                        result.content, keywords
+                    )
+                    ranked_result.highlighted_content = highlighted_content
+                    
+                    # Extract source attribution
+                    source_attribution = self.source_extractor.extract_attribution(result)
+                    ranked_result.source_attribution = source_attribution
+                    
+                    # Analyze relevance indicators
+                    relevance_indicators = self.relevance_analyzer.analyze_relevance(
+                        query, result, float(score)
+                    )
+                    ranked_result.relevance_indicators = relevance_indicators
+                
                 ranked_results.append(ranked_result)
             
             # Sort by rerank_score (descending)
@@ -294,7 +355,9 @@ class RerankerService:
                     'candidates_processed': len(working_candidates),
                     'results_returned': len(ranked_results),
                     'cache_hit_rate': self._get_cache_hit_rate(),
-                    'average_score_improvement': self._calculate_score_improvement(ranked_results)
+                    'average_score_improvement': self._calculate_score_improvement(ranked_results),
+                    'enhancements_enabled': include_enhancements,
+                    'keywords_extracted': len(keywords) if keywords else 0
                 }
             
             return ranked_results
