@@ -4,7 +4,12 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 from datetime import datetime
 
-from research_agent_backend.core.rag_query_engine import (
+# Import from the original rag_query_engine.py file, not the package
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'core'))
+
+from rag_query_engine import (
     RAGQueryEngine, 
     QueryContext, 
     QueryIntent, 
