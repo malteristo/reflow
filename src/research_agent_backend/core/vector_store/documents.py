@@ -126,7 +126,8 @@ class DocumentManager:
                     if existing_count > 0:
                         # Get a sample to check dimension
                         sample_results = collection.get(limit=1, include=['embeddings'])
-                        if sample_results['embeddings'] and len(sample_results['embeddings']) > 0:
+                        if (sample_results['embeddings'] is not None and 
+                            len(sample_results['embeddings']) > 0):
                             existing_dim = len(sample_results['embeddings'][0])
                             if first_dim != existing_dim:
                                 raise EmbeddingDimensionError(
@@ -145,7 +146,14 @@ class DocumentManager:
             
             # Prepare metadata with consistent structure
             if metadata is None:
-                metadata = [{} for _ in chunks]
+                # ChromaDB requires non-empty metadata dictionaries
+                # Provide minimal metadata with document index
+                metadata = [{"document_index": i} for i in range(len(chunks))]
+            else:
+                # Ensure no metadata entries are empty
+                for i, meta in enumerate(metadata):
+                    if not meta:  # Empty dict or None
+                        metadata[i] = {"document_index": i}
             
             # Add documents to collection
             collection.add(
