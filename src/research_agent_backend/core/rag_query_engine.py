@@ -263,6 +263,42 @@ class QueryContext:
         )
 
 
+@dataclass
+class QueryResult:
+    """
+    Complete result from RAG query processing pipeline.
+    
+    Contains processed query context, search results, and metadata
+    about the query execution for FR-RQ-005 compliance.
+    """
+    query_context: 'QueryContext'
+    results: List[Dict[str, Any]]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    feedback: Optional[Dict[str, Any]] = None
+    execution_stats: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert QueryResult to dictionary representation."""
+        return {
+            "query_context": self.query_context.to_dict(),
+            "results": self.results,
+            "metadata": self.metadata,
+            "feedback": self.feedback,
+            "execution_stats": self.execution_stats
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'QueryResult':
+        """Create QueryResult from dictionary representation."""
+        return cls(
+            query_context=QueryContext.from_dict(data["query_context"]),
+            results=data.get("results", []),
+            metadata=data.get("metadata", {}),
+            feedback=data.get("feedback"),
+            execution_stats=data.get("execution_stats", {})
+        )
+
+
 class RAGQueryEngine:
     """
     Main RAG Query Engine for processing and orchestrating queries.
@@ -270,6 +306,8 @@ class RAGQueryEngine:
     Coordinates the complete RAG pipeline from query parsing through
     result formatting, integrating with existing QueryManager, embedding
     services, and re-ranking components.
+    
+    Implements FR-RQ-005, FR-RQ-006, FR-RQ-008 requirements.
     """
     
     def __init__(self, query_manager, embedding_service, reranker):
@@ -279,6 +317,162 @@ class RAGQueryEngine:
         self.reranker = reranker
         self.logger = logging.getLogger(__name__)
     
+    def query(
+        self,
+        query_text: str,
+        collections: List[str],
+        top_k: int = DEFAULT_TOP_K,
+        enable_reranking: bool = True,
+        rerank_top_n: Optional[int] = None,
+        include_feedback: bool = True,
+        distance_threshold: Optional[float] = DEFAULT_DISTANCE_THRESHOLD
+    ) -> QueryResult:
+        """
+        Execute complete RAG query pipeline end-to-end.
+        
+        Implements FR-RQ-005, FR-RQ-006, FR-RQ-008 by orchestrating:
+        1. Query context parsing and intent classification
+        2. Query embedding generation with enhancement
+        3. Vector similarity search
+        4. Cross-encoder re-ranking for relevance optimization
+        5. Result feedback generation with suggestions
+        
+        Args:
+            query_text: Natural language query string
+            collections: List of collection names to search in
+            top_k: Maximum number of initial search results (default: 20)
+            enable_reranking: Whether to apply cross-encoder re-ranking
+            rerank_top_n: Number of results to return after re-ranking
+            include_feedback: Whether to generate search feedback and suggestions
+            distance_threshold: Maximum distance threshold for results
+            
+        Returns:
+            QueryResult with processed context, ranked results, and metadata
+            
+        Raises:
+            ValueError: If query is empty or collections list is empty
+            Exception: If any pipeline component fails
+        """
+        import time
+        start_time = time.time()
+        
+        try:
+            # Validate input parameters
+            if not query_text or not query_text.strip():
+                raise ValueError("Query text cannot be empty")
+            if not collections:
+                raise ValueError("Collections list cannot be empty")
+            
+            self.logger.info(f"Starting RAG query pipeline for: '{query_text[:50]}...'")
+            
+            # Phase 1: Parse query context and extract intent (FR-RQ-005)
+            self.logger.debug("Phase 1: Parsing query context")
+            query_context = self.parse_query_context(query_text)
+            
+            # Phase 2: Generate enhanced query embedding (FR-RQ-006)
+            self.logger.debug("Phase 2: Generating query embedding")
+            query_embedding = self.generate_query_embedding(query_context)
+            
+            # Phase 3: Execute vector similarity search
+            self.logger.debug(f"Phase 3: Executing vector search across {len(collections)} collections")
+            search_candidates = self.execute_vector_search(
+                query_embedding=query_embedding,
+                collections=collections,
+                top_k=top_k,
+                distance_threshold=distance_threshold
+            )
+            
+            # Phase 4: Apply contextual metadata filtering
+            self.logger.debug("Phase 4: Applying metadata filters")
+            filtered_candidates = self.apply_metadata_filters(
+                candidates=search_candidates,
+                filters=query_context.filters
+            )
+            
+            # Phase 5: Apply cross-encoder re-ranking (FR-RQ-008)
+            if enable_reranking and filtered_candidates:
+                self.logger.debug("Phase 5: Applying cross-encoder re-ranking")
+                final_results = self.apply_reranking(
+                    query=query_text,
+                    candidates=filtered_candidates,
+                    top_n=rerank_top_n
+                )
+            else:
+                final_results = filtered_candidates[:rerank_top_n] if rerank_top_n else filtered_candidates
+            
+            # Phase 6: Generate result feedback and suggestions
+            feedback = None
+            if include_feedback:
+                self.logger.debug("Phase 6: Generating result feedback")
+                feedback = self.generate_result_feedback(
+                    query_context=query_context,
+                    search_results=final_results,
+                    top_k=top_k
+                )
+            
+            # Calculate execution statistics
+            execution_time = time.time() - start_time
+            execution_stats = {
+                "execution_time_ms": round(execution_time * 1000, 2),
+                "total_candidates": len(search_candidates),
+                "filtered_candidates": len(filtered_candidates),
+                "final_results": len(final_results),
+                "reranking_enabled": enable_reranking,
+                "collections_searched": len(collections)
+            }
+            
+            # Prepare metadata
+            metadata = {
+                "query_intent": query_context.intent.value,
+                "key_terms": query_context.key_terms,
+                "applied_filters": len(query_context.filters),
+                "search_collections": collections,
+                "processing_pipeline": [
+                    "context_parsing",
+                    "embedding_generation", 
+                    "vector_search",
+                    "metadata_filtering",
+                    "reranking" if enable_reranking else "no_reranking",
+                    "feedback_generation" if include_feedback else "no_feedback"
+                ]
+            }
+            
+            self.logger.info(f"RAG query completed in {execution_stats['execution_time_ms']}ms - {len(final_results)} results")
+            
+            return QueryResult(
+                query_context=query_context,
+                results=final_results,
+                metadata=metadata,
+                feedback=feedback,
+                execution_stats=execution_stats
+            )
+            
+        except Exception as e:
+            self.logger.error(f"RAG query pipeline failed: {e}")
+            
+            # Return error result with partial information if available
+            error_stats = {
+                "execution_time_ms": round((time.time() - start_time) * 1000, 2),
+                "error": str(e),
+                "failed_at": "query_execution"
+            }
+            
+            # Try to include basic query context if parsing succeeded
+            try:
+                error_context = self.parse_query_context(query_text)
+            except:
+                error_context = QueryContext(
+                    original_query=query_text,
+                    intent=QueryIntent.INFORMATION_SEEKING
+                )
+            
+            return QueryResult(
+                query_context=error_context,
+                results=[],
+                metadata={"error": str(e)},
+                execution_stats=error_stats
+            )
+
     def parse_query_context(self, query: str) -> QueryContext:
         """
         Parse a natural language query to extract context and intent.

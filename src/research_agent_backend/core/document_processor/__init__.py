@@ -44,7 +44,9 @@ from .chunking import (
     ChunkConfig,
     ChunkResult,
     ChunkBoundary,
-    RecursiveChunker
+    RecursiveChunker,
+    HybridChunker,
+    HybridChunkResult
 )
 
 # Atomic units system
@@ -112,6 +114,8 @@ __all__ = [
     "ChunkResult", 
     "ChunkBoundary",
     "RecursiveChunker",
+    "HybridChunker",
+    "HybridChunkResult",
     
     # Atomic units
     "AtomicUnitType",

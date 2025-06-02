@@ -174,4 +174,55 @@ class ChunkMetadata:
             "access_permissions": [str(perm) for perm in self.access_permissions],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-        } 
+        }
+    
+    def update_from_dict(self, data: Dict[str, Any]) -> None:
+        """
+        Update chunk metadata from dictionary data.
+        
+        Useful for integrating with hybrid chunker results (FR-KB-002.1).
+        Updates only the provided fields, leaving others unchanged.
+        
+        Args:
+            data: Dictionary with metadata fields to update
+        """
+        # Update header hierarchy if provided
+        if 'header_hierarchy' in data:
+            hierarchy_data = data['header_hierarchy']
+            if isinstance(hierarchy_data, list):
+                self.header_hierarchy.headers = hierarchy_data
+            elif isinstance(hierarchy_data, HeaderHierarchy):
+                self.header_hierarchy = hierarchy_data
+        
+        # Update content type if provided
+        if 'content_type' in data:
+            content_type_value = data['content_type']
+            if isinstance(content_type_value, str):
+                try:
+                    self.content_type = ContentType(content_type_value)
+                except ValueError:
+                    logger.warning(f"Invalid content type: {content_type_value}")
+            elif isinstance(content_type_value, ContentType):
+                self.content_type = content_type_value
+        
+        # Update other fields directly
+        field_mappings = {
+            'source_document_id': 'source_document_id',
+            'document_title': 'document_title', 
+            'code_language': 'code_language',
+            'section_title': 'section_title',  # Custom field for hybrid chunker
+            'section_level': 'section_level',   # Custom field for hybrid chunker
+            'is_atomic_unit': 'is_atomic_unit', # Custom field for hybrid chunker
+            'chunk_size': 'chunk_size',
+            'start_char_index': 'start_char_index',
+            'end_char_index': 'end_char_index'
+        }
+        
+        for data_key, attr_name in field_mappings.items():
+            if data_key in data and data[data_key] is not None:
+                setattr(self, attr_name, data[data_key])
+        
+        # Update timestamp
+        self.update_timestamp()
+        
+        logger.debug(f"Updated chunk metadata from dict with keys: {list(data.keys())}") 

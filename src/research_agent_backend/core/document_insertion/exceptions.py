@@ -36,6 +36,7 @@ class InsertionResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     processing_time_seconds: float = 0.0
     cache_hit: bool = False  # Track cache hits for optimization
+    hybrid_chunking_stats: Optional[Dict[str, Any]] = None  # FR-KB-002.1 chunking statistics
     
     @property
     def has_errors(self) -> bool:

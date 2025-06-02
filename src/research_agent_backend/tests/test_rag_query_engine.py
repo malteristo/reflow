@@ -8,7 +8,8 @@ from research_agent_backend.core.rag_query_engine import (
     RAGQueryEngine, 
     QueryContext, 
     QueryIntent, 
-    ContextualFilter
+    ContextualFilter,
+    QueryResult
 )
 from research_agent_backend.core.integration_pipeline.models import SearchResult
 from research_agent_backend.core.reranker.models import RankedResult
@@ -2201,3 +2202,269 @@ class TestRAGResultFormatting:
         summary = formatted_results["summary"]
         assert "total_results" in summary
         assert summary["total_results"] == self.sample_feedback["search_summary"]["total_results"] 
+
+
+class TestRAGQueryPipelineEndToEnd:
+    """Test suite for complete RAG query pipeline end-to-end functionality."""
+    
+    def setup_method(self):
+        """Set up test fixtures for pipeline testing."""
+        self.mock_query_manager = Mock()
+        self.mock_embedding_service = Mock()
+        self.mock_reranker = Mock()
+        
+        self.rag_engine = RAGQueryEngine(
+            query_manager=self.mock_query_manager,
+            embedding_service=self.mock_embedding_service,
+            reranker=self.mock_reranker
+        )
+        
+        # Mock successful pipeline responses
+        self._setup_mock_responses()
+    
+    def _setup_mock_responses(self):
+        """Set up standard mock responses for pipeline testing."""
+        # Mock embedding service response
+        self.mock_embedding_service.embed_text.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
+        
+        # Mock vector search results
+        self.mock_search_results = [
+            {
+                "content": "Machine learning is a subset of artificial intelligence",
+                "metadata": {"source": "ml_basics.md", "collection": "ai", "author": "test"},
+                "distance": 0.15
+            },
+            {
+                "content": "Deep learning uses neural networks with multiple layers",
+                "metadata": {"source": "deep_learning.md", "collection": "ai", "author": "test"},
+                "distance": 0.25
+            }
+        ]
+        self.mock_query_manager.query.return_value = self.mock_search_results
+        
+        # Mock reranker response
+        self.mock_ranked_results = [
+            Mock(score=0.9, document=Mock(content="Machine learning is a subset of artificial intelligence")),
+            Mock(score=0.8, document=Mock(content="Deep learning uses neural networks with multiple layers"))
+        ]
+        self.mock_reranker.rerank.return_value = self.mock_ranked_results
+    
+    def test_query_pipeline_basic_execution(self):
+        """Test basic execution of the complete query pipeline."""
+        query_text = "What is machine learning?"
+        collections = ["ai", "technology"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections,
+            top_k=10
+        )
+        
+        # Verify result structure
+        assert hasattr(result, 'query_context')
+        assert hasattr(result, 'results')
+        assert hasattr(result, 'metadata')
+        assert hasattr(result, 'execution_stats')
+        assert hasattr(result, 'feedback')
+        
+        # Verify query context
+        assert result.query_context.original_query == query_text
+        assert result.query_context.intent == QueryIntent.INFORMATION_SEEKING
+        
+        # Verify pipeline executed
+        self.mock_embedding_service.embed_text.assert_called_once()
+        self.mock_query_manager.query.assert_called_once()
+        self.mock_reranker.rerank.assert_called_once()
+        
+        # Verify execution stats
+        assert "execution_time_ms" in result.execution_stats
+        assert "total_candidates" in result.execution_stats
+        assert "reranking_enabled" in result.execution_stats
+        assert result.execution_stats["collections_searched"] == 2
+    
+    def test_query_pipeline_with_reranking_disabled(self):
+        """Test pipeline execution with reranking disabled."""
+        query_text = "Python tutorials"
+        collections = ["programming"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections,
+            enable_reranking=False
+        )
+        
+        # Verify reranking was not called
+        self.mock_reranker.rerank.assert_not_called()
+        assert result.execution_stats["reranking_enabled"] is False
+        
+        # Should still have results from vector search
+        assert len(result.results) > 0
+    
+    def test_query_pipeline_with_feedback_disabled(self):
+        """Test pipeline execution with feedback generation disabled."""
+        query_text = "JavaScript frameworks"
+        collections = ["web"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections,
+            include_feedback=False
+        )
+        
+        # Verify feedback is None
+        assert result.feedback is None
+        
+        # Should still have other components
+        assert result.query_context is not None
+        assert len(result.results) >= 0
+    
+    def test_query_pipeline_with_filters(self):
+        """Test pipeline execution with metadata filters."""
+        query_text = "Python tutorials from programming collection"
+        collections = ["programming", "docs"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections
+        )
+        
+        # Verify filters were extracted
+        assert len(result.query_context.filters) > 0
+        collection_filter = next(
+            (f for f in result.query_context.filters if f.field == "collection"),
+            None
+        )
+        assert collection_filter is not None
+        assert collection_filter.value == "programming"
+    
+    def test_query_pipeline_error_handling(self):
+        """Test pipeline error handling and graceful degradation."""
+        # Mock embedding service failure
+        self.mock_embedding_service.embed_text.side_effect = Exception("Embedding failed")
+        
+        query_text = "Test query"
+        collections = ["test"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections
+        )
+        
+        # Should return error result
+        assert result.results == []
+        assert "error" in result.metadata
+        assert "error" in result.execution_stats
+        assert result.execution_stats["failed_at"] == "query_execution"
+    
+    def test_query_pipeline_empty_collections_error(self):
+        """Test error handling for empty collections list."""
+        with pytest.raises(ValueError, match="Collections list cannot be empty"):
+            self.rag_engine.query(
+                query_text="test query",
+                collections=[]
+            )
+    
+    def test_query_pipeline_empty_query_error(self):
+        """Test error handling for empty query text."""
+        with pytest.raises(ValueError, match="Query text cannot be empty"):
+            self.rag_engine.query(
+                query_text="",
+                collections=["test"]
+            )
+    
+    def test_query_pipeline_with_distance_threshold(self):
+        """Test pipeline execution with distance threshold filtering."""
+        query_text = "machine learning basics"
+        collections = ["ai"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections,
+            distance_threshold=0.5
+        )
+        
+        # Verify vector search was called with distance threshold
+        call_args = self.mock_query_manager.query.call_args
+        assert "distance_threshold" in call_args.kwargs or len(call_args.args) >= 5
+    
+    def test_query_pipeline_top_k_limiting(self):
+        """Test pipeline execution with top_k limiting."""
+        query_text = "Python examples"
+        collections = ["programming"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections,
+            top_k=5
+        )
+        
+        # Verify search was called with correct top_k
+        call_args = self.mock_query_manager.query.call_args
+        assert call_args.kwargs.get("top_k") == 5 or (len(call_args.args) >= 3 and call_args.args[2] == 5)
+    
+    def test_query_pipeline_rerank_top_n_limiting(self):
+        """Test pipeline execution with rerank top_n limiting."""
+        query_text = "Django tutorials"
+        collections = ["web"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections,
+            rerank_top_n=3
+        )
+        
+        # Verify reranker was called with top_n
+        call_args = self.mock_reranker.rerank.call_args
+        assert call_args.kwargs.get("top_n") == 3 or (len(call_args.args) >= 3 and call_args.args[2] == 3)
+    
+    def test_query_result_serialization(self):
+        """Test QueryResult to_dict and from_dict methods."""
+        query_text = "test serialization"
+        collections = ["test"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections
+        )
+        
+        # Test to_dict
+        result_dict = result.to_dict()
+        assert "query_context" in result_dict
+        assert "results" in result_dict
+        assert "metadata" in result_dict
+        assert "execution_stats" in result_dict
+        
+        # Test from_dict
+        from research_agent_backend.core.rag_query_engine import QueryResult
+        reconstructed = QueryResult.from_dict(result_dict)
+        assert reconstructed.query_context.original_query == result.query_context.original_query
+        assert reconstructed.results == result.results
+    
+    def test_query_pipeline_metadata_completeness(self):
+        """Test that pipeline metadata includes all expected fields."""
+        query_text = "comprehensive test query"
+        collections = ["test1", "test2"]
+        
+        result = self.rag_engine.query(
+            query_text=query_text,
+            collections=collections
+        )
+        
+        # Verify metadata completeness
+        assert "query_intent" in result.metadata
+        assert "key_terms" in result.metadata
+        assert "applied_filters" in result.metadata
+        assert "search_collections" in result.metadata
+        assert "processing_pipeline" in result.metadata
+        
+        # Verify execution stats completeness
+        expected_stats = [
+            "execution_time_ms",
+            "total_candidates", 
+            "filtered_candidates",
+            "final_results",
+            "reranking_enabled",
+            "collections_searched"
+        ]
+        for stat in expected_stats:
+            assert stat in result.execution_stats

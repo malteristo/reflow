@@ -50,7 +50,7 @@
         "markdown_aware": {"type": "boolean"},
         "preserve_headers": {"type": "boolean"},
         "min_chunk_size": {"type": "integer", "minimum": 50},
-        "max_chunk_size": {"type": "integer", "minimum": 200}
+        "max_chunk_size": {"type": "integer", "minimum": 200, "maximum": 8192}
       },
       "required": ["type", "chunk_size"]
     },

@@ -19,6 +19,7 @@ from ...models.metadata_schema import DocumentMetadata
 from ...utils.config import ConfigManager
 from ..document_processor.chunking.chunker import RecursiveChunker
 from ..document_processor.chunking.config import ChunkConfig, BoundaryStrategy
+from ..document_processor.chunking import HybridChunker, HybridChunkResult
 
 from .exceptions import (
     InsertionError, 
@@ -107,6 +108,18 @@ class DocumentInsertionManager:
         # Initialize logger
         self.logger = logging.getLogger(__name__)
         
+        # Initialize hybrid chunker configuration (FR-KB-002.1)
+        chunking_config = ChunkConfig(
+            chunk_size=self.config_manager.get("chunking_strategy.chunk_size", 512),
+            chunk_overlap=self.config_manager.get("chunking_strategy.chunk_overlap", 50),
+            boundary_strategy=BoundaryStrategy.INTELLIGENT,
+            preserve_code_blocks=self.config_manager.get("chunking_strategy.preserve_code_blocks", True),
+            preserve_tables=self.config_manager.get("chunking_strategy.preserve_tables", True)
+        )
+        
+        # Initialize HybridChunker for FR-KB-002.1 compliance
+        self.hybrid_chunker = HybridChunker(chunking_config)
+        
         # Initialize service components
         self.validator = DocumentValidator(logger=self.logger)
         self.preparation_service = DocumentPreparationService(
@@ -144,7 +157,7 @@ class DocumentInsertionManager:
             self.preparation_service.collection_type_manager = self.collection_type_manager
         
         self.logger.info(
-            f"DocumentInsertionManager initialized successfully "
+            f"DocumentInsertionManager initialized successfully with HybridChunker "
             f"(optimization: {enable_optimization}, caching: {enable_caching}, metrics: {enable_metrics})"
         )
     
@@ -242,21 +255,38 @@ class DocumentInsertionManager:
             
             # Handle chunking based on optimization settings
             if enable_chunking:
-                if self.enable_optimization and hasattr(self, 'recursive_chunker'):
-                    # Use advanced RecursiveChunker
-                    chunk_results = self.recursive_chunker.chunk_text(cleaned_text)
-                    chunks = [chunk_result.content for chunk_result in chunk_results]
-                    chunk_metadata_list = [
-                        ChunkMetadataFactory.create_chunk_metadata(doc_metadata, i)
-                        for i, _ in enumerate(chunks)
-                    ]
-                else:
-                    # Use basic chunker
-                    chunks, chunk_metadata_list = self.chunker.chunk_document(
-                        cleaned_text, doc_metadata, chunk_size
-                    )
+                # Use HybridChunker for FR-KB-002.1 compliance
+                self.logger.debug(f"Starting hybrid chunking for document {document_id}")
                 
-                # Check embedding cache if enabled
+                hybrid_result = self.hybrid_chunker.chunk_document(
+                    document_content=cleaned_text,
+                    document_id=document_id,
+                    source_path=None  # Could be enhanced to accept source path
+                )
+                
+                # Extract chunks and create metadata
+                chunks = [chunk.content for chunk in hybrid_result.chunks]
+                chunk_metadata_list = []
+                
+                for i, chunk_result in enumerate(hybrid_result.chunks):
+                    # Create ChunkMetadata compatible object from HybridChunkResult metadata
+                    chunk_metadata = ChunkMetadataFactory.create_chunk_metadata(doc_metadata, i)
+                    
+                    # Enhance with hybrid chunker metadata (FR-KB-002.3)
+                    if chunk_result.metadata:
+                        chunk_metadata.update_from_dict({
+                            'header_hierarchy': chunk_result.metadata.get('header_hierarchy', []),
+                            'content_type': chunk_result.metadata.get('content_type', 'prose'),
+                            'section_title': chunk_result.metadata.get('section_title', ''),
+                            'section_level': chunk_result.metadata.get('section_level', 0),
+                            'is_atomic_unit': chunk_result.metadata.get('is_atomic_unit', False),
+                            'code_language': chunk_result.metadata.get('code_language'),
+                            'source_document_id': chunk_result.metadata.get('source_document_id', document_id)
+                        })
+                    
+                    chunk_metadata_list.append(chunk_metadata)
+                
+                # Generate embeddings with caching support
                 if self.enable_optimization and self.enable_caching and hasattr(self, 'embedding_cache'):
                     embeddings, cache_stats = self.embedding_cache.get_embeddings_with_caching(chunks)
                     # Update global cache stats
@@ -268,6 +298,16 @@ class DocumentInsertionManager:
                 
                 result.chunk_count = len(chunks)
                 result.chunk_ids = [chunk_meta.chunk_id for chunk_meta in chunk_metadata_list]
+                
+                # Store hybrid chunking statistics in result
+                if hybrid_result.processing_stats:
+                    result.hybrid_chunking_stats = hybrid_result.processing_stats
+                
+                self.logger.info(
+                    f"Hybrid chunking completed for document {document_id}: "
+                    f"{len(chunks)} chunks, {len(hybrid_result.atomic_units)} atomic units"
+                )
+                
             else:
                 # Single chunk insertion
                 chunks = [cleaned_text]

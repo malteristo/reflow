@@ -13,6 +13,8 @@ Components:
 - ChunkResult: Comprehensive chunk result container
 - ChunkBoundary: Intelligent boundary detection system
 - RecursiveChunker: Main recursive chunking engine
+- HybridChunker: Complete FR-KB-002.1 hybrid chunking implementation
+- HybridChunkResult: Result container for hybrid chunking operations
 """
 
 from .config import (
@@ -27,6 +29,8 @@ from .boundary import ChunkBoundary
 
 from .chunker import RecursiveChunker
 
+from .hybrid_chunker import HybridChunker, HybridChunkResult
+
 # Public API - maintains backward compatibility
 __all__ = [
     "BoundaryStrategy",
@@ -34,5 +38,7 @@ __all__ = [
     "ChunkConfig",
     "ChunkResult",
     "ChunkBoundary",
-    "RecursiveChunker"
+    "RecursiveChunker",
+    "HybridChunker",
+    "HybridChunkResult"
 ] 
