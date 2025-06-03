@@ -21,7 +21,7 @@ from .tools.query_tool import QueryKnowledgeBaseTool
 from .tools.collections_tool import ManageCollectionsTool
 from .tools.documents_tool import IngestDocumentsTool
 from .tools.projects_tool import ManageProjectsTool
-from .tools.augment_tool import AugmentKnowledgeTool
+from .tools.augment_tool import AugmentKnowledgeTool, SubmitFeedbackTool
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ class MCPServer:
         self.documents_tool = IngestDocumentsTool()
         self.projects_tool = ManageProjectsTool()
         self.augment_tool = AugmentKnowledgeTool()
+        self.feedback_tool = SubmitFeedbackTool()
         
         # Server configuration
         self.timeout_config = {
@@ -119,7 +120,8 @@ class MCPServer:
             self.collections_tool,
             self.documents_tool,
             self.projects_tool,
-            self.augment_tool
+            self.augment_tool,
+            self.feedback_tool
         ]
         
         for tool in tools:
@@ -263,7 +265,8 @@ class MCPServer:
                 self.collections_tool,
                 self.documents_tool,
                 self.projects_tool,
-                self.augment_tool
+                self.augment_tool,
+                self.feedback_tool
             ]
             
             for tool in tools:
@@ -377,6 +380,24 @@ class MCPServer:
             }
             return await self.augment_tool.execute(params)
         
+        @self.mcp.tool()
+        async def submit_feedback(
+            chunk_id: str,
+            rating: str,
+            reason: str,
+            comment: Optional[str] = None,
+            user_id: Optional[str] = None
+        ) -> Dict[str, Any]:
+            """Submit user feedback (thumbs up/down) for a knowledge base chunk to improve content quality."""
+            params = {
+                "chunk_id": chunk_id,
+                "rating": rating,
+                "reason": reason,
+                "comment": comment,
+                "user_id": user_id
+            }
+            return await self.feedback_tool.execute(params)
+        
         # Register tools in internal tracking
         self._tools["ping"] = ping
         self._tools["server_info"] = server_info
@@ -385,6 +406,7 @@ class MCPServer:
         self._tools["ingest_documents"] = self.documents_tool
         self._tools["manage_projects"] = self.projects_tool
         self._tools["augment_knowledge"] = self.augment_tool
+        self._tools["submit_feedback"] = self.feedback_tool
         
         logger.debug("Tools setup complete")
 

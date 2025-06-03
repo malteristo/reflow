@@ -11,6 +11,7 @@ import json
 import logging
 import subprocess
 from typing import Dict, Any, List
+import asyncio
 
 from .base_tool import BaseMCPTool, ToolValidationError
 
@@ -149,4 +150,105 @@ class AugmentKnowledgeTool(BaseMCPTool):
             "sources_used": cli_data.get("sources_used", []),
             "processing_time": cli_data.get("processing_time", 0),
             "message": cli_data.get("message", "Knowledge augmentation completed successfully")
-        } 
+        }
+
+
+class SubmitFeedbackTool(BaseMCPTool):
+    """Tool for submitting user feedback on knowledge base chunks."""
+    
+    @property
+    def name(self) -> str:
+        return "submit_feedback"
+    
+    @property
+    def description(self) -> str:
+        return "Submit user feedback (thumbs up/down) for a knowledge base chunk to improve content quality"
+    
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "chunk_id": {
+                    "type": "string",
+                    "description": "ID of the chunk to provide feedback on"
+                },
+                "rating": {
+                    "type": "string",
+                    "enum": ["positive", "negative", "neutral"],
+                    "description": "Rating for the chunk: positive (thumbs up), negative (thumbs down), or neutral"
+                },
+                "reason": {
+                    "type": "string", 
+                    "description": "Reason for the rating (e.g., 'very-relevant', 'incorrect-information', 'outdated-info')"
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Optional detailed comment about the chunk quality",
+                    "default": None
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "Optional user ID for non-anonymous feedback",
+                    "default": None
+                }
+            },
+            "required": ["chunk_id", "rating", "reason"]
+        }
+    
+    async def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute feedback submission."""
+        try:
+            chunk_id = params["chunk_id"]
+            rating = params["rating"]
+            reason = params["reason"]
+            comment = params.get("comment")
+            user_id = params.get("user_id")
+            
+            # Build CLI command
+            cmd = [
+                "python", "-m", "research_agent_backend.cli.cli",
+                "kb", "feedback",
+                "--chunk-id", chunk_id,
+                "--rating", rating,
+                "--reason", reason
+            ]
+            
+            if comment:
+                cmd.extend(["--comment", comment])
+            if user_id:
+                cmd.extend(["--user-id", user_id])
+            
+            # Execute CLI command
+            result = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self.project_root
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode == 0:
+                return {
+                    "status": "success",
+                    "message": f"Feedback recorded for chunk {chunk_id}",
+                    "rating": rating,
+                    "reason": reason,
+                    "chunk_id": chunk_id,
+                    "impact": "Quality score updated based on your feedback"
+                }
+            else:
+                error_msg = stderr.decode() if stderr else "Unknown error occurred"
+                return {
+                    "status": "error",
+                    "message": f"Failed to submit feedback: {error_msg}",
+                    "chunk_id": chunk_id
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in submit_feedback: {e}")
+            return {
+                "status": "error", 
+                "message": f"Failed to submit feedback: {str(e)}"
+            } 

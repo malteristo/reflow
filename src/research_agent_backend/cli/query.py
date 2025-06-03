@@ -150,6 +150,11 @@ def search(
         "-c",
         help="Comma-separated list of collections to search"
     ),
+    context: Optional[str] = typer.Option(
+        None,
+        "--context",
+        help="Document context from current editor position (for Design Researcher integration)"
+    ),
     top_k: int = typer.Option(
         10,
         "--top-k",
@@ -166,6 +171,11 @@ def search(
         "--min-score",
         help="Minimum similarity score for results"
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output results in JSON format"
+    ),
 ) -> None:
     """
     Search the knowledge base using semantic similarity.
@@ -174,7 +184,7 @@ def search(
     the most relevant documents for your query.
     
     Example:
-        research-agent query search "machine learning algorithms" --collections "ml-papers"
+        research-agent query search "machine learning algorithms" --collections "ml-papers" --context "Section discussing neural networks"
     """
     try:
         # Get components
@@ -184,8 +194,14 @@ def search(
         # Parse collections
         collection_list = parse_collections(collections)
         
+        # Enhanced query with context if provided
+        enhanced_query = query
+        if context:
+            # Combine query with document context for better understanding
+            enhanced_query = f"{query}\n\nDocument context: {context}"
+        
         # Parse query context
-        query_context = rag_engine.parse_query_context(query)
+        query_context = rag_engine.parse_query_context(enhanced_query)
         
         # Generate query embedding
         query_embedding = rag_engine.generate_query_embedding(query_context)
@@ -206,23 +222,57 @@ def search(
         # Apply re-ranking if enabled
         if rerank and result.results:
             result.results = rag_engine.apply_reranking(
-                query=query,
+                query=enhanced_query,
                 candidates=result.results,
                 top_n=top_k
             )
         
-        # Display results
-        if result.results:
-            results_table = format_search_results(result.results, query)
-            console.print(results_table)
+        # Format output based on json_output flag
+        if json_output:
+            # JSON output for MCP integration
+            output_data = {
+                "query": query,
+                "enhanced_query": enhanced_query if context else query,
+                "context_provided": bool(context),
+                "results": result.results if result.results else [],
+                "total_results": len(result.results) if result.results else 0,
+                "collections_searched": collection_list or ["default"],
+                "query_status": "success" if result.results else "no_results",
+                "refinement_message": "No results found. Try broader search terms." if not result.results else ""
+            }
             
-            rprint(f"\n[green]Found {len(result.results)} results[/green]")
+            # Print JSON to stdout for MCP
+            print(json.dumps(output_data, indent=2))
         else:
-            rprint("[yellow]No results found[/yellow]")
-            
+            # Rich console output for interactive use
+            if result.results:
+                results_table = format_search_results(result.results, query)
+                console.print(results_table)
+                
+                rprint(f"\n[green]Found {len(result.results)} results[/green]")
+                if context:
+                    rprint(f"[dim]Query enhanced with document context[/dim]")
+            else:
+                rprint("[yellow]No results found[/yellow]")
+                if context:
+                    rprint("[dim]Context was used but no matching documents found[/dim]")
+                
     except Exception as e:
         logger.error(f"Search failed: {e}")
-        rprint(f"[red]Error:[/red] {e}")
+        if json_output:
+            # JSON error output for MCP
+            error_data = {
+                "query": query,
+                "context_provided": bool(context),
+                "results": [],
+                "total_results": 0,
+                "query_status": "error",
+                "error": str(e),
+                "refinement_message": f"Search failed: {str(e)}"
+            }
+            print(json.dumps(error_data, indent=2))
+        else:
+            rprint(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 

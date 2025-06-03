@@ -12,7 +12,19 @@ import re
 import logging
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any, Optional, Union, Tuple, TypeVar, Generic
+
+from .constants import DEFAULT_TOP_K, DEFAULT_DISTANCE_THRESHOLD
+from .query_context import QueryContext, QueryIntent, ContextualFilter
+from .query_parsing import QueryParser, QueryEnhancer
+from .feedback_generation import FeedbackGenerator
+
+# Import KnowledgeGapDetector for integration
+from ..services.knowledge_gap_detector import (
+    KnowledgeGapDetector, 
+    GapDetectionConfig,
+    GapAnalysisResult
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,10 +119,6 @@ TEMPORAL_ENHANCEMENT_MAP = {
     "last_month": "recent month",
     "last_week": "recent week"
 }
-
-# Default search parameters
-DEFAULT_TOP_K = 20
-DEFAULT_DISTANCE_THRESHOLD = None
 
 # Feedback generation constants
 RELEVANCE_THRESHOLDS = {
@@ -276,6 +284,7 @@ class QueryResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     feedback: Optional[Dict[str, Any]] = None
     execution_stats: Dict[str, Any] = field(default_factory=dict)
+    knowledge_gap_analysis: Optional[Dict[str, Any]] = None  # New field for gap detection
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert QueryResult to dictionary representation."""
@@ -284,7 +293,8 @@ class QueryResult:
             "results": self.results,
             "metadata": self.metadata,
             "feedback": self.feedback,
-            "execution_stats": self.execution_stats
+            "execution_stats": self.execution_stats,
+            "knowledge_gap_analysis": self.knowledge_gap_analysis
         }
     
     @classmethod
@@ -295,7 +305,8 @@ class QueryResult:
             results=data.get("results", []),
             metadata=data.get("metadata", {}),
             feedback=data.get("feedback"),
-            execution_stats=data.get("execution_stats", {})
+            execution_stats=data.get("execution_stats", {}),
+            knowledge_gap_analysis=data.get("knowledge_gap_analysis")
         )
 
 
@@ -316,6 +327,15 @@ class RAGQueryEngine:
         self.embedding_service = embedding_service
         self.reranker = reranker
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize Knowledge Gap Detector with default configuration
+        gap_config = GapDetectionConfig(
+            low_confidence_threshold=0.4,
+            sparse_results_threshold=3,
+            minimum_coverage_score=0.5,
+            enable_external_suggestions=True
+        )
+        self.knowledge_gap_detector = KnowledgeGapDetector(gap_config)
     
     def query(
         self,
@@ -336,6 +356,7 @@ class RAGQueryEngine:
         3. Vector similarity search
         4. Cross-encoder re-ranking for relevance optimization
         5. Result feedback generation with suggestions
+        6. Knowledge gap detection and analysis
         
         Args:
             query_text: Natural language query string
@@ -410,6 +431,49 @@ class RAGQueryEngine:
                     top_k=top_k
                 )
             
+            # Phase 7: Knowledge gap detection and analysis (FR-IK-001, FR-IK-002, FR-IK-003)
+            knowledge_gap_analysis = None
+            self.logger.debug("Phase 7: Analyzing knowledge gaps")
+            try:
+                # Convert search results to QueryResult format for KnowledgeGapDetector
+                from ..core.query_manager.types import QueryResult as QueryManagerResult
+                
+                # Extract similarity scores from search results (convert distance to similarity)
+                similarity_scores = []
+                for result in final_results:
+                    distance = result.get("distance", 0.5)
+                    # Convert distance to similarity score (1.0 - distance, clamped to [0, 1])
+                    similarity = max(0.0, min(1.0, 1.0 - distance))
+                    similarity_scores.append(similarity)
+                
+                # Create QueryResult for gap detector
+                query_manager_result = QueryManagerResult(
+                    results=final_results,
+                    similarity_scores=similarity_scores,
+                    total_results=len(final_results)
+                )
+                
+                # Analyze knowledge gaps
+                gap_analysis = self.knowledge_gap_detector.analyze_knowledge_gap(
+                    query=query_text,
+                    query_result=query_manager_result
+                )
+                
+                # Convert gap analysis to dictionary for inclusion in response
+                knowledge_gap_analysis = gap_analysis.to_dict()
+                
+                # Log gap detection results
+                if gap_analysis.has_knowledge_gap:
+                    self.logger.info(f"Knowledge gap detected for query '{query_text[:50]}...' - Confidence: {gap_analysis.confidence_level.value}")
+                    if gap_analysis.research_suggestions:
+                        self.logger.info(f"Generated {len(gap_analysis.research_suggestions)} external research suggestions")
+                else:
+                    self.logger.debug(f"No knowledge gap detected for query - Confidence: {gap_analysis.confidence_level.value}")
+                    
+            except Exception as e:
+                self.logger.warning(f"Knowledge gap analysis failed: {e}")
+                # Continue without gap analysis rather than failing the entire query
+            
             # Calculate execution statistics
             execution_time = time.time() - start_time
             execution_stats = {
@@ -444,7 +508,8 @@ class RAGQueryEngine:
                 results=final_results,
                 metadata=metadata,
                 feedback=feedback,
-                execution_stats=execution_stats
+                execution_stats=execution_stats,
+                knowledge_gap_analysis=knowledge_gap_analysis
             )
             
         except Exception as e:
@@ -470,7 +535,8 @@ class RAGQueryEngine:
                 query_context=error_context,
                 results=[],
                 metadata={"error": str(e)},
-                execution_stats=error_stats
+                execution_stats=error_stats,
+                knowledge_gap_analysis=None
             )
 
     def parse_query_context(self, query: str) -> QueryContext:
