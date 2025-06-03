@@ -12,6 +12,7 @@ from typing import Optional, List
 from rich import print as rprint
 from rich.table import Table
 from rich.console import Console
+from datetime import datetime
 
 from ..core.vector_store import (
     create_chroma_manager,
@@ -367,17 +368,103 @@ def rename_collection(
         except CollectionNotFoundError:
             pass  # Target name is available
         
-        # TODO: Implement actual rename functionality
-        # For now, this would require creating a new collection and moving all documents
-        rprint("[yellow]Note:[/yellow] Collection renaming requires document migration")
-        rprint(f"This operation would:")
-        rprint(f"1. Create new collection '{new_name}'")
-        rprint(f"2. Move all documents from '{old_name}' to '{new_name}'")
-        rprint(f"3. Delete collection '{old_name}'")
-        rprint("[red]Full rename implementation pending document migration features[/red]")
+        # Implement actual rename functionality
+        rprint(f"[blue]Renaming collection '[/blue]{old_name}[blue]' to '[/blue]{new_name}[blue]'...[/blue]")
+        rprint("1. Getting source collection information...")
         
-        # Placeholder success message for testing
-        rprint(f"[green]Successfully renamed collection[/green] '{old_name}' to '{new_name}'")
+        # Get all documents from source collection
+        documents_data = manager.get_documents(
+            collection_name=old_name,
+            limit=10000,  # Large limit to get all documents
+            include=['documents', 'metadatas', 'ids', 'embeddings']
+        )
+        
+        document_count = len(documents_data.get('documents', []))
+        rprint(f"   Found {document_count} documents to migrate")
+        
+        if document_count == 0:
+            rprint("[yellow]Warning:[/yellow] Source collection is empty")
+        
+        # Get source collection metadata
+        source_info = manager.collection_manager.get_collection(old_name)
+        source_metadata = source_info.metadata or {}
+        
+        rprint("2. Creating target collection...")
+        
+        # Create new collection with same type and metadata
+        collection_type = source_metadata.get('collection_type', 'general')
+        try:
+            coll_type = CollectionType(collection_type)
+        except ValueError:
+            coll_type = CollectionType.GENERAL
+        
+        # Create target collection with preserved metadata
+        target_metadata = source_metadata.copy()
+        target_metadata['renamed_from'] = old_name
+        target_metadata['renamed_at'] = datetime.now().isoformat()
+        
+        new_collection = manager.collection_manager.create_collection(
+            name=new_name,
+            collection_type=coll_type,
+            metadata=target_metadata,
+            owner_id="default_user"  # TODO: Replace with actual user context
+        )
+        
+        rprint(f"   Created collection '{new_name}' with type '{collection_type}'")
+        
+        if document_count > 0:
+            rprint("3. Migrating documents...")
+            
+            # Get documents, metadata, and IDs
+            documents = documents_data.get('documents', [])
+            metadatas = documents_data.get('metadatas', [])
+            ids = documents_data.get('ids', [])
+            embeddings = documents_data.get('embeddings', [])
+            
+            # Prepare batch data for insertion
+            try:
+                if embeddings:
+                    # Use existing embeddings if available
+                    manager.add_documents_with_embeddings(
+                        collection_name=new_name,
+                        documents=documents,
+                        metadatas=metadatas,
+                        ids=ids,
+                        embeddings=embeddings
+                    )
+                else:
+                    # Let the system generate new embeddings
+                    manager.add_documents(
+                        collection_name=new_name,
+                        documents=documents,
+                        metadatas=metadatas,
+                        ids=ids
+                    )
+                
+                rprint(f"   Migrated {len(documents)} documents successfully")
+                
+            except Exception as e:
+                rprint(f"[red]Error migrating documents:[/red] {e}")
+                # Clean up the new collection if migration fails
+                try:
+                    manager.collection_manager.delete_collection(new_name)
+                    rprint(f"   Cleaned up failed collection '{new_name}'")
+                except Exception:
+                    pass
+                raise
+        
+        rprint("4. Deleting source collection...")
+        
+        # Delete original collection
+        manager.collection_manager.delete_collection(old_name)
+        rprint(f"   Deleted original collection '{old_name}'")
+        
+        rprint(f"[green]✓ Successfully renamed collection[/green] '{old_name}' to '{new_name}'")
+        if document_count > 0:
+            rprint(f"  Migrated: {document_count} documents")
+        rprint(f"  Type: {collection_type}")
+        if target_metadata.get('description'):
+            rprint(f"  Description: {target_metadata['description']}")
         
     except Exception as e:
         _handle_collection_error("rename collection", e)
@@ -447,15 +534,121 @@ def move_documents(
                 rprint("[yellow]Operation cancelled[/yellow]")
                 return
         
-        # TODO: Implement actual document moving functionality
-        # This requires document manager support for cross-collection operations
-        rprint(f"[yellow]Note:[/yellow] Document moving between collections")
-        if pattern:
-            rprint(f"Pattern: {pattern}")
+        # Implement actual document moving functionality
+        rprint(f"[blue]Moving documents from '[/blue]{source}[blue]' to '[/blue]{target}[blue]'...[/blue]")
         
-        # Placeholder for actual implementation
-        moved_count = 5 if not pattern else 3
-        rprint(f"[green]Successfully moved[/green] {moved_count} documents from '{source}' to '{target}'")
+        # Get all documents from source collection
+        rprint("1. Retrieving documents from source collection...")
+        documents_data = manager.get_documents(
+            collection_name=source,
+            limit=10000,  # Large limit to get all documents
+            include=['documents', 'metadatas', 'ids', 'embeddings']
+        )
+        
+        documents = documents_data.get('documents', [])
+        metadatas = documents_data.get('metadatas', [])
+        ids = documents_data.get('ids', [])
+        embeddings = documents_data.get('embeddings', [])
+        
+        if not documents:
+            rprint(f"[yellow]No documents found in collection '{source}'[/yellow]")
+            return
+        
+        # Apply pattern filtering if specified
+        if pattern:
+            import fnmatch
+            
+            rprint(f"2. Filtering documents by pattern: {pattern}")
+            filtered_indices = []
+            
+            for i, (doc_id, metadata) in enumerate(zip(ids, metadatas)):
+                # Check pattern against document ID
+                if fnmatch.fnmatch(doc_id, pattern):
+                    filtered_indices.append(i)
+                # Also check against filename in metadata if available
+                elif metadata and 'source_file' in metadata:
+                    if fnmatch.fnmatch(metadata['source_file'], pattern):
+                        filtered_indices.append(i)
+                # Also check against title in metadata if available
+                elif metadata and 'title' in metadata:
+                    if fnmatch.fnmatch(metadata['title'], pattern):
+                        filtered_indices.append(i)
+            
+            if not filtered_indices:
+                rprint(f"[yellow]No documents matched pattern '{pattern}'[/yellow]")
+                return
+            
+            # Filter all arrays by matching indices
+            documents = [documents[i] for i in filtered_indices]
+            metadatas = [metadatas[i] for i in filtered_indices]
+            ids = [ids[i] for i in filtered_indices]
+            if embeddings:
+                embeddings = [embeddings[i] for i in filtered_indices]
+            
+            rprint(f"   Found {len(documents)} documents matching pattern")
+        else:
+            rprint(f"   Found {len(documents)} documents to move")
+        
+        # Add documents to target collection
+        step_num = 3 if pattern else 2
+        rprint(f"{step_num}. Adding documents to target collection...")
+        
+        try:
+            # Add migration metadata
+            for metadata in metadatas:
+                if metadata is None:
+                    metadata = {}
+                metadata['moved_from'] = source
+                metadata['moved_at'] = datetime.now().isoformat()
+            
+            if embeddings:
+                # Use existing embeddings if available
+                manager.add_documents_with_embeddings(
+                    collection_name=target,
+                    documents=documents,
+                    metadatas=metadatas,
+                    ids=ids,
+                    embeddings=embeddings
+                )
+            else:
+                # Let the system generate new embeddings
+                manager.add_documents(
+                    collection_name=target,
+                    documents=documents,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+            
+            rprint(f"   Added {len(documents)} documents to '{target}'")
+            
+        except Exception as e:
+            rprint(f"[red]Error adding documents to target collection:[/red] {e}")
+            raise
+        
+        # Remove documents from source collection
+        step_num += 1
+        rprint(f"{step_num}. Removing documents from source collection...")
+        
+        try:
+            # Remove documents by ID from source collection
+            for doc_id in ids:
+                try:
+                    manager.delete_documents(
+                        collection_name=source,
+                        ids=[doc_id]
+                    )
+                except Exception as e:
+                    rprint(f"   [yellow]Warning:[/yellow] Could not remove document {doc_id}: {e}")
+            
+            rprint(f"   Removed {len(ids)} documents from '{source}'")
+            
+        except Exception as e:
+            rprint(f"[yellow]Warning:[/yellow] Some documents may not have been removed from source: {e}")
+        
+        rprint(f"[green]✓ Successfully moved[/green] {len(documents)} documents from '{source}' to '{target}'")
+        if pattern:
+            rprint(f"  Pattern: {pattern}")
+        rprint(f"  Documents moved: {len(documents)}")
         
     except Exception as e:
         _handle_collection_error("move documents", e) 

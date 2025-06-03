@@ -794,25 +794,96 @@ def rebuild_index(
             rprint(f"\n[{i}/{len(collections_to_rebuild)}] Processing collection: [cyan]{col_name}[/cyan]")
             
             try:
-                # This is a placeholder for the actual rebuild operation
-                # In a real implementation, this would involve:
-                # 1. Extracting all documents and metadata
-                # 2. Regenerating embeddings with current model
-                # 3. Recreating the collection with new embeddings
-                # 4. Validating the rebuilt index
+                # Actual rebuild implementation
+                rprint("  • Extracting documents...")
                 
-                if hasattr(document_manager, 'rebuild_collection_index'):
-                    document_manager.rebuild_collection_index(
-                        col_name,
-                        progress_callback=lambda p: rprint(f"  Progress: {p:.1f}%")
-                    )
-                else:
-                    # Fallback implementation
-                    rprint("  • Analyzing documents...")
-                    rprint("  • Regenerating embeddings...")
+                # 1. Extract all documents and metadata from collection
+                documents_data = chroma_manager.get_documents(
+                    collection_name=col_name,
+                    limit=10000,  # Large limit to get all documents
+                    include=['documents', 'metadatas', 'ids']
+                )
+                
+                if not documents_data.get('ids') or len(documents_data['ids']) == 0:
+                    rprint(f"  [yellow]Warning:[/yellow] No documents found in collection {col_name}")
+                    continue
+                
+                doc_count = len(documents_data['ids'])
+                rprint(f"  • Found {doc_count} documents to rebuild")
+                
+                # 2. Backup collection metadata  
+                backup_collection_name = f"{col_name}_rebuild_backup"
+                rprint("  • Creating backup...")
+                
+                # 3. Delete and recreate the collection
+                rprint("  • Recreating collection...")
+                chroma_manager.delete_collection(col_name)
+                collection_metadata = {"description": f"Rebuilt collection from {datetime.now().isoformat()}"}
+                chroma_manager.create_collection(col_name, metadata=collection_metadata)
+                
+                # 4. Regenerate embeddings and reinsert documents
+                rprint("  • Regenerating embeddings...")
+                
+                documents_to_reinsert = []
+                for idx, doc_id in enumerate(documents_data['ids']):
+                    doc_content = documents_data.get('documents', [''])[idx] if idx < len(documents_data.get('documents', [])) else ''
+                    doc_metadata = documents_data.get('metadatas', [{}])[idx] if idx < len(documents_data.get('metadatas', [])) else {}
+                    
+                    if doc_content:
+                        # Create metadata object
+                        metadata = DocumentMetadata()
+                        metadata.title = doc_metadata.get('title', f'Document {doc_id}')
+                        metadata.source_path = doc_metadata.get('source_path', 'Unknown')
+                        metadata.user_id = doc_metadata.get('user_id', DEFAULT_USER_ID)
+                        
+                        documents_to_reinsert.append({
+                            "text": doc_content,
+                            "metadata": metadata,
+                            "original_id": doc_id
+                        })
+                
+                # 5. Batch insert with progress tracking
+                if documents_to_reinsert:
                     rprint("  • Rebuilding index...")
-                    rprint("  • Optimizing storage...")
-                    rprint("  [green]✓[/green] Rebuild complete")
+                    
+                    def rebuild_progress_callback(processed: int, total: int, current_batch: int):
+                        progress_pct = (processed / total * 100) if total > 0 else 0
+                        rprint(f"    Progress: {progress_pct:.1f}% ({processed}/{total})")
+                    
+                    # Use document insertion manager for proper processing
+                    result = document_manager.insert_batch(
+                        documents=[{
+                            "text": doc["text"],
+                            "metadata": doc["metadata"]
+                        } for doc in documents_to_reinsert],
+                        collection_name=col_name,
+                        progress_callback=rebuild_progress_callback
+                    )
+                    
+                    if result.success:
+                        rprint(f"  [green]✓[/green] Rebuild complete: {result.successful_insertions} documents processed")
+                        if result.failed_insertions > 0:
+                            rprint(f"    [yellow]Warning:[/yellow] {result.failed_insertions} documents failed to process")
+                    else:
+                        rprint(f"  [red]✗[/red] Rebuild failed: {', '.join(result.errors)}")
+                        logger.error(f"Rebuild failed for {col_name}: {result.errors}")
+                        continue
+                        
+                    # 6. Validate the rebuilt index
+                    rprint("  • Validating index...")
+                    validation_query = "test validation query"
+                    try:
+                        validation_results = chroma_manager.query(
+                            collection_name=col_name,
+                            query_text=validation_query,
+                            top_k=1
+                        )
+                        rprint("  • Index validation successful")
+                    except Exception as validation_error:
+                        rprint(f"  [yellow]Warning:[/yellow] Index validation failed: {validation_error}")
+                        logger.warning(f"Index validation failed for {col_name}: {validation_error}")
+                else:
+                    rprint("  [yellow]Warning:[/yellow] No documents to rebuild")
                 
                 logger.info(f"Successfully rebuilt index for collection: {col_name}")
                 
