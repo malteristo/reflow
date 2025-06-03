@@ -508,20 +508,27 @@ class AugmentationService:
                     # Generate embedding
                     content_embedding = self.embedding_service.embed_text(external_result.content)
                     
-                    # Add document to vector store
+                    # Add document to vector store with flattened metadata
+                    # ChromaDB only accepts str, int, float, bool, or None values in metadata
+                    flattened_metadata = {
+                        'document_id': document_id,
+                        'title': external_result.title,
+                        'source_url': source_attribution.get('url', ''),
+                        'source_author': source_attribution.get('author') or '',
+                        'source_added_date': source_attribution.get('added_date', ''),
+                        'source_type': source_attribution.get('type', ''),
+                        'source_quality_score': float(source_attribution.get('quality_score', 0.0)),
+                        'tags': str(external_result.tags) if external_result.tags else '',
+                        'quality_score': float(quality_score.overall_score),
+                        'added_by': 'augmentation_service',
+                        'content_type': 'external_result'
+                    }
+                    
                     self.vector_store.add_documents(
                         collection_name=collection,
                         chunks=[external_result.content],
                         embeddings=[content_embedding],
-                        metadata=[{
-                            'document_id': document_id,
-                            'title': external_result.title,
-                            'source_attribution': source_attribution,
-                            'tags': external_result.tags,
-                            'quality_score': quality_score.overall_score,
-                            'added_by': 'augmentation_service',
-                            'content_type': 'external_result'
-                        }],
+                        metadata=[flattened_metadata],
                         ids=[document_id]
                     )
                     

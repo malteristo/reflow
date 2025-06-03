@@ -1,37 +1,22 @@
 """
-Integration tests for the complete RAG pipeline implementation.
+Integration tests for the RAG pipeline end-to-end functionality.
 
-This test suite specifically validates the main query() method in RAGQueryEngine
-as implemented in subtask 29.3 for FR-RQ-005, FR-RQ-006, FR-RQ-008 compliance.
+Tests the complete RAG query processing pipeline including query context parsing,
+embedding generation, vector search, re-ranking, and result formatting.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-import sys
 import os
-import importlib.util
+import pytest
+from unittest.mock import Mock, patch, MagicMock
 
-# Direct import of the rag_query_engine.py file to avoid package conflicts
-def load_rag_engine_module():
-    """Load the RAG query engine module directly from the file."""
-    file_path = os.path.join(
-        os.path.dirname(__file__), 
-        '..', 
-        'core', 
-        'rag_query_engine.py'
-    )
-    spec = importlib.util.spec_from_file_location("rag_query_engine_direct", file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-rag_module = load_rag_engine_module()
-
-RAGQueryEngine = rag_module.RAGQueryEngine
-QueryResult = rag_module.QueryResult
-QueryContext = rag_module.QueryContext
-QueryIntent = rag_module.QueryIntent
-ContextualFilter = rag_module.ContextualFilter
+# Import from the proper package structure
+from research_agent_backend.core.rag_query_engine import (
+    RAGQueryEngine,
+    QueryResult,
+    QueryContext,
+    QueryIntent,
+    ContextualFilter
+)
 
 
 class TestRAGPipelineIntegration:

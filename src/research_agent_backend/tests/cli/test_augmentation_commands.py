@@ -26,29 +26,34 @@ runner = CliRunner()
 class TestAddExternalResultCommand:
     """Test the add-external-result command."""
     
-    @patch('research_agent_backend.cli.augmentation.AugmentationService')
-    def test_add_external_result_basic(self, mock_augmentation_service):
+    @patch('research_agent_backend.core.augmentation_service.AugmentationService._calculate_quality_score')
+    def test_add_external_result_basic(self, mock_quality_score):
         """Test adding a basic external search result."""
-        mock_service_instance = Mock()
-        mock_augmentation_service.return_value = mock_service_instance
-        mock_service_instance.add_external_result.return_value = {
-            'document_id': 'ext_001',
-            'status': 'success',
-            'collection': 'research'
-        }
+        # Mock quality validation to always pass
+        from research_agent_backend.core.augmentation_service import QualityMetrics
+        mock_quality_score.return_value = QualityMetrics(
+            overall_score=0.85,  # High quality score to pass validation
+            content_length_score=0.8,
+            structure_score=0.9,
+            credibility_score=0.8,
+            freshness_score=0.9,
+            relevance_score=0.8,
+            language_score=0.9,
+            uniqueness_score=0.8
+        )
         
         result = runner.invoke(app, [
             'kb', 'add-external-result',
             '--source', 'https://example.com/article',
-            '--title', 'Machine Learning Advances',
-            '--content', 'Recent advances in machine learning...',
+            '--title', 'Machine Learning Advances in Computer Vision',
+            '--content', 'This comprehensive research paper explores the latest advances in machine learning, specifically focusing on computer vision applications. The study examines various deep learning architectures including convolutional neural networks, transformer models, and their applications in image recognition, object detection, and semantic segmentation. Key findings demonstrate significant improvements in accuracy and computational efficiency through novel architectural innovations and training methodologies.',
             '--collection', 'research'
         ])
         
         assert result.exit_code == 0
-        assert 'ext_001' in result.stdout
-        assert 'success' in result.stdout
-        mock_service_instance.add_external_result.assert_called_once()
+        # Check that the command succeeded and returned a document ID
+        assert 'ext_' in result.stdout  # Document ID pattern
+        assert 'success' in result.stdout or 'Success' in result.stdout
         
     @patch('research_agent_backend.cli.augmentation.AugmentationService')
     def test_add_external_result_with_metadata(self, mock_augmentation_service):

@@ -3,191 +3,70 @@ RAG Query Engine - Core query processing and orchestration.
 
 This module implements the main RAG (Retrieval-Augmented Generation) query engine
 that orchestrates the complete query processing pipeline including context parsing,
-embedding generation, vector search, metadata filtering, re-ranking, and result formatting.
+embedding generation, vector search, re-ranking, and result formatting.
 
 Implements FR-RQ-005, FR-RQ-008: Core query processing and re-ranking pipeline.
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Union, TypeVar, Generic
-from dataclasses import dataclass
+import re
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional, Union, Tuple, TypeVar, Generic
 import time
 
+# Import constants from local package files  
 from .constants import DEFAULT_TOP_K, DEFAULT_DISTANCE_THRESHOLD
-from .query_context import QueryContext, QueryIntent, ContextualFilter
+from .query_context import QueryContext, QueryIntent, ContextualFilter  
 from .query_parsing import QueryParser, QueryEnhancer
 from .feedback_generation import FeedbackGenerator
 
+# Import KnowledgeGapDetector for integration
+from research_agent_backend.services.knowledge_gap_detector import (
+    KnowledgeGapDetector, 
+    GapDetectionConfig,
+    GapAnalysisResult
+)
+
 logger = logging.getLogger(__name__)
 
-
-class ContentHighlighter:
-    """Utility class for highlighting query terms in content."""
+@dataclass
+class QueryResult:
+    """
+    Complete result from RAG query processing pipeline.
     
-    @staticmethod
-    def highlight_terms(
-        content: str,
-        key_terms: List[str],
-        style: str = "html"
-    ) -> str:
-        """Highlight query terms in content based on style."""
-        if not content or not key_terms:
-            return content
-        
-        import re
-        
-        # Sort terms by length (longest first) to prioritize phrases over individual words
-        sorted_terms = sorted(key_terms, key=len, reverse=True)
-        
-        # Create a single regex pattern that matches all terms
-        # Escape each term and join with | (OR)
-        escaped_terms = [re.escape(term) for term in sorted_terms if term.strip()]
-        if not escaped_terms:
-            return content
-        
-        pattern = r'\b(?:' + '|'.join(escaped_terms) + r')\b'
-        
-        def highlight_replacement(match):
-            term = match.group(0)
-            if style == "html":
-                return f"<mark>{term}</mark>"
-            elif style == "markdown":
-                return f"**{term}**"
-            elif style == "cli":
-                return f"\033[1;33m{term}\033[0m"  # Yellow text
-            else:
-                return f"**{term}**"  # Default to markdown
-        
-        # Apply highlighting using case-insensitive matching
-        highlighted = re.sub(pattern, highlight_replacement, content, flags=re.IGNORECASE)
-        return highlighted
-
-
-class SnippetGenerator:
-    """Utility class for generating intelligent content snippets."""
+    Contains processed query context, search results, and metadata
+    about the query execution for FR-RQ-005 compliance.
+    """
+    query_context: 'QueryContext'
+    results: List[Dict[str, Any]]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    feedback: Optional[Dict[str, Any]] = None
+    execution_stats: Dict[str, Any] = field(default_factory=dict)
+    knowledge_gap_analysis: Optional[Dict[str, Any]] = None  # New field for gap detection
     
-    @staticmethod
-    def generate_snippet(
-        content: str,
-        key_terms: List[str],
-        max_length: int = 200,
-        context_window: int = 50
-    ) -> str:
-        """Generate an intelligent snippet from content focusing on query terms."""
-        if not content:
-            return ""
-        
-        if len(content) <= max_length:
-            return content
-        
-        import re
-        
-        # Find positions of all key terms (case-insensitive)
-        term_positions = []
-        for term in key_terms:
-            if not term.strip():
-                continue
-            pattern = re.escape(term)
-            for match in re.finditer(pattern, content, re.IGNORECASE):
-                term_positions.append((match.start(), match.end()))
-        
-        if not term_positions:
-            # No terms found, return beginning of content
-            return content[:max_length].rsplit(' ', 1)[0] + "..."
-        
-        # Find the best position to center the snippet for maximum term coverage
-        term_positions.sort()
-        
-        # Calculate snippet start position
-        first_term_start = term_positions[0][0]
-        last_term_end = term_positions[-1][1]
-        
-        # Try to center around the term cluster
-        cluster_center = (first_term_start + last_term_end) // 2
-        snippet_start = max(0, cluster_center - max_length // 2)
-        
-        # Adjust to word boundaries
-        if snippet_start > 0:
-            # Find the next word boundary
-            next_space = content.find(' ', snippet_start)
-            if next_space != -1 and next_space < snippet_start + context_window:
-                snippet_start = next_space + 1
-        
-        snippet_end = min(len(content), snippet_start + max_length)
-        
-        # Adjust end to word boundary
-        if snippet_end < len(content):
-            last_space = content.rfind(' ', snippet_start, snippet_end)
-            if last_space > snippet_start + max_length // 2:
-                snippet_end = last_space
-        
-        snippet = content[snippet_start:snippet_end]
-        
-        # Add ellipsis if needed
-        if snippet_start > 0:
-            snippet = "..." + snippet
-        if snippet_end < len(content):
-            snippet = snippet + "..."
-        
-        return snippet
-
-
-class ResultFormatter:
-    """Utility class for formatting query results in different output formats."""
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert QueryResult to dictionary representation."""
+        return {
+            "query_context": self.query_context.to_dict(),
+            "results": self.results,
+            "metadata": self.metadata,
+            "feedback": self.feedback,
+            "execution_stats": self.execution_stats,
+            "knowledge_gap_analysis": self.knowledge_gap_analysis
+        }
     
-    def __init__(self):
-        self.highlighter = ContentHighlighter()
-        self.snippet_generator = SnippetGenerator()
-    
-    def format_for_output(
-        self,
-        formatted_results: Dict[str, Any],
-        output_format: str
-    ) -> Dict[str, Any]:
-        """Format results for specific output type."""
-        if output_format == "cli":
-            return self._format_for_cli(formatted_results)
-        elif output_format == "api":
-            return self._format_for_api(formatted_results)
-        else:
-            return formatted_results  # Default structured format
-    
-    def _format_for_cli(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Format results for CLI display."""
-        cli_results = results.copy()
-        
-        # Simplify metadata for CLI readability
-        if "results" in cli_results:
-            for result in cli_results["results"]:
-                if "metadata" in result:
-                    # Keep only essential metadata for CLI
-                    essential_meta = {
-                        "source": result["metadata"].get("source", "Unknown"),
-                        "type": result["metadata"].get("type", "document"),
-                        "collection": result["metadata"].get("collection", "default")
-                    }
-                    result["metadata"] = essential_meta
-        
-        # Remove performance metrics for cleaner CLI output
-        cli_results.pop("performance_metrics", None)
-        
-        return cli_results
-    
-    def _format_for_api(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Format results for API response."""
-        api_results = results.copy()
-        
-        # Ensure all fields are properly serializable
-        if "query_info" in api_results:
-            query_info = api_results["query_info"]
-            if "timestamp" in query_info and hasattr(query_info["timestamp"], "isoformat"):
-                query_info["timestamp"] = query_info["timestamp"].isoformat()
-        
-        # Add API-specific metadata
-        api_results["api_version"] = "1.0"
-        api_results["response_type"] = "search_results"
-        
-        return api_results
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'QueryResult':
+        """Create QueryResult from dictionary representation."""
+        return cls(
+            query_context=QueryContext.from_dict(data["query_context"]),
+            results=data.get("results", []),
+            metadata=data.get("metadata", {}),
+            feedback=data.get("feedback"),
+            execution_stats=data.get("execution_stats", {}),
+            knowledge_gap_analysis=data.get("knowledge_gap_analysis")
+        )
 
 
 class RAGQueryEngine:
@@ -207,7 +86,6 @@ class RAGQueryEngine:
         self.logger = logging.getLogger(__name__)
         self.query_parser = QueryParser()
         self.feedback_generator = FeedbackGenerator()
-        self.result_formatter = ResultFormatter()
     
     def parse_query_context(self, query: str) -> QueryContext:
         """
@@ -711,7 +589,6 @@ class RAGQueryEngine:
     
     def _find_matched_terms(self, content: str, key_terms: List[str]) -> List[str]:
         """Find which query terms are present in the content."""
-        import re
         matched = []
         content_lower = content.lower()
         
@@ -723,7 +600,6 @@ class RAGQueryEngine:
     
     def _calculate_term_frequency(self, content: str, key_terms: List[str]) -> Dict[str, int]:
         """Calculate frequency of query terms in content."""
-        import re
         frequencies = {}
         content_lower = content.lower()
         
@@ -1015,4 +891,150 @@ class RAGQueryEngine:
             
             fallback_results.append(fallback_result)
         
-        return fallback_results 
+        return fallback_results
+
+    def query(
+        self,
+        query_text: str,
+        collections: List[str],
+        top_k: int = DEFAULT_TOP_K,
+        enable_reranking: bool = True,
+        include_feedback: bool = True,
+        distance_threshold: Optional[float] = DEFAULT_DISTANCE_THRESHOLD,
+        rerank_top_n: Optional[int] = None,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> QueryResult:
+        """
+        Execute complete RAG query pipeline.
+        
+        Args:
+            query_text: The search query text
+            collections: List of collection names to search
+            top_k: Maximum number of results to return from vector search
+            enable_reranking: Whether to apply cross-encoder re-ranking
+            include_feedback: Whether to generate result feedback and suggestions
+            distance_threshold: Minimum similarity score threshold
+            rerank_top_n: Maximum results to return after re-ranking
+            filters: Additional metadata filters to apply
+            
+        Returns:
+            QueryResult object with search results and metadata
+            
+        Raises:
+            ValueError: If query_text is empty or collections list is empty
+            Exception: If any pipeline stage fails critically
+        """
+        start_time = time.time()
+        
+        # Input validation
+        if not query_text or not query_text.strip():
+            raise ValueError("Query text cannot be empty")
+        if not collections:
+            raise ValueError("Collections list cannot be empty")
+        
+        try:
+            # Step 1: Parse query context and extract intent/filters
+            self.logger.debug(f"Parsing query context for: {query_text[:50]}...")
+            query_context = self.parse_query_context(query_text)
+            
+            # Step 2: Generate query embedding
+            self.logger.debug("Generating query embedding...")
+            query_embedding = self.generate_query_embedding(query_context)
+            
+            # Step 3: Execute vector search
+            self.logger.debug(f"Executing vector search across {len(collections)} collections...")
+            search_results = self.execute_vector_search(
+                query_embedding=query_embedding,
+                collections=collections,
+                top_k=top_k,
+                filters=filters,
+                distance_threshold=distance_threshold
+            )
+            
+            # Step 4: Apply metadata filtering
+            self.logger.debug("Applying metadata filters...")
+            filtered_results = self.apply_metadata_filters(search_results, query_context.filters)
+            
+            # Step 5: Apply re-ranking if enabled
+            if enable_reranking and filtered_results:
+                self.logger.debug("Applying cross-encoder re-ranking...")
+                reranked_results = self.apply_reranking(
+                    query=query_text,
+                    candidates=filtered_results,
+                    top_n=rerank_top_n
+                )
+            else:
+                reranked_results = filtered_results
+                self.logger.debug("Re-ranking disabled or no results to rank")
+            
+            # Step 6: Generate feedback if enabled
+            feedback = None
+            if include_feedback:
+                self.logger.debug("Generating result feedback...")
+                feedback = self.generate_result_feedback(
+                    query_context=query_context,
+                    search_results=reranked_results,
+                    top_k=top_k
+                )
+            
+            # Step 7: Calculate execution statistics
+            execution_time_ms = (time.time() - start_time) * 1000
+            execution_stats = {
+                "execution_time_ms": execution_time_ms,
+                "total_candidates": len(search_results),
+                "filtered_candidates": len(filtered_results),
+                "final_results": len(reranked_results),
+                "collections_searched": len(collections),
+                "reranking_enabled": enable_reranking,
+                "feedback_enabled": include_feedback,
+                "query_intent": query_context.intent.value if query_context.intent else "unknown"
+            }
+            
+            # Step 8: Create and return QueryResult
+            result = QueryResult(
+                query_context=query_context,
+                results=reranked_results,
+                metadata={
+                    "search_stats": {
+                        "vector_search_results": len(search_results),
+                        "metadata_filtered_results": len(filtered_results),
+                        "final_ranked_results": len(reranked_results)
+                    },
+                    "pipeline_config": {
+                        "top_k": top_k,
+                        "distance_threshold": distance_threshold,
+                        "rerank_top_n": rerank_top_n,
+                        "collections": collections
+                    }
+                },
+                feedback=feedback,
+                execution_stats=execution_stats
+            )
+            
+            self.logger.info(f"Query completed in {execution_time_ms:.2f}ms: {len(reranked_results)} results")
+            return result
+            
+        except Exception as e:
+            # Handle pipeline failures gracefully
+            execution_time_ms = (time.time() - start_time) * 1000
+            self.logger.error(f"Query pipeline failed: {e}")
+            
+            # Return error result
+            error_result = QueryResult(
+                query_context=QueryContext(
+                    original_query=query_text,
+                    intent=None,
+                    key_terms=[],
+                    filters=[],
+                    preferences={}
+                ),
+                results=[],
+                metadata={"error": str(e)},
+                execution_stats={
+                    "execution_time_ms": execution_time_ms,
+                    "failed_at": "query_execution",
+                    "error": str(e)
+                }
+            )
+            
+            return error_result 

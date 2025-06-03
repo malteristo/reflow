@@ -8,14 +8,15 @@ embedding generation, vector search, re-ranking, and result formatting.
 Implements FR-RQ-005, FR-RQ-008: Core query processing and re-ranking pipeline.
 """
 
-import re
 import logging
+import re
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Union, Tuple, TypeVar, Generic
 
+# Import constants from local package files  
 from .constants import DEFAULT_TOP_K, DEFAULT_DISTANCE_THRESHOLD
-from .query_context import QueryContext, QueryIntent, ContextualFilter
+from .query_context import QueryContext, QueryIntent, ContextualFilter  
 from .query_parsing import QueryParser, QueryEnhancer
 from .feedback_generation import FeedbackGenerator
 
@@ -28,40 +29,16 @@ from ..services.knowledge_gap_detector import (
 
 logger = logging.getLogger(__name__)
 
-# Constants for improved maintainability
-STOP_WORDS = {
-    'what', 'is', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 
-    'to', 'for', 'of', 'with', 'by', 'from', 'show', 'me', 'find',
-    'about', 'how', 'collection', 'research'
-}
-
-COMPARATIVE_INDICATORS = ['vs', 'versus', 'compare', 'difference between']
-TROUBLESHOOTING_INDICATORS = ['error', 'bug', 'fix', 'problem', 'issue']
-CODE_SEARCH_INDICATORS = ['function', 'code', 'example', 'implementation']
-TUTORIAL_INDICATORS = ['how to', 'tutorial', 'step by step', 'guide']
-
-TECHNOLOGY_MAPPINGS = {
-    'python': 'Python',
-    'javascript': 'JavaScript',
-    'react': 'React', 
-    'vue.js': 'Vue.js',
-    'django': 'Django',
-    'tensorflow': 'TensorFlow',
-    'docker': 'Docker'
-}
-
-HARDWARE_MAPPINGS = {
-    'gpu': 'GPU',
-    'cpu': 'CPU', 
-    'ram': 'RAM',
-    'ssd': 'SSD'
-}
-
-COMPOUND_TERMS = ['machine learning', 'data validation']
-
-COMPLEXITY_BEGINNER_WORDS = ['simple', 'basic', 'beginner', 'easy']
-COMPLEXITY_ADVANCED_WORDS = ['advanced', 'expert', 'complex']
-EXAMPLE_INDICATORS = ['example', 'examples', 'with examples']
+# Import additional constants for this file only
+from .constants import (
+    STOP_WORDS, COMPARATIVE_INDICATORS, TROUBLESHOOTING_INDICATORS,
+    CODE_SEARCH_INDICATORS, TUTORIAL_INDICATORS, TECHNOLOGY_MAPPINGS,
+    HARDWARE_MAPPINGS, COMPOUND_TERMS, COMPLEXITY_BEGINNER_WORDS,
+    COMPLEXITY_ADVANCED_WORDS, EXAMPLE_INDICATORS, INTENT_ENHANCEMENT_MAP,
+    TEMPORAL_ENHANCEMENT_MAP, RELEVANCE_THRESHOLDS, SUGGESTION_TYPES,
+    TECH_TERMS, MISMATCH_COLLECTIONS, RELEVANCE_DESCRIPTIONS,
+    PREFERENCE_KEYWORDS, COMPLEXITY_ENHANCEMENT_MAP
+)
 
 class QueryIntent(Enum):
     """Enumeration of different query intent types."""
@@ -436,7 +413,7 @@ class RAGQueryEngine:
             self.logger.debug("Phase 7: Analyzing knowledge gaps")
             try:
                 # Convert search results to QueryResult format for KnowledgeGapDetector
-                from ..core.query_manager.types import QueryResult as QueryManagerResult
+                from research_agent_backend.core.query_manager.types import QueryResult as QueryManagerResult
                 
                 # Extract similarity scores from search results (convert distance to similarity)
                 similarity_scores = []
