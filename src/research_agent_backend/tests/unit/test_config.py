@@ -128,7 +128,7 @@ class TestConfigManagerBasicOperations:
             load_env=False
         )
         
-        assert config_manager.get("version") == "1.0.0"
+        assert config_manager.get("version") == "1.2.0"
         assert config_manager.get("embedding_model.name") == "test-model"
         assert config_manager.get("embedding_model.type") == "local"
         assert config_manager.get("nonexistent", "default") == "default"

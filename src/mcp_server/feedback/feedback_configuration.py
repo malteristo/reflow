@@ -53,10 +53,10 @@ class ProgressReportingFrequencyConfig:
             return self.update_interval_seconds
         
         # For longer operations, reduce frequency to avoid spam
-        if operation_duration_estimate > 60:  # > 1 minute
-            return max(self.update_interval_seconds, 2.0)
-        elif operation_duration_estimate > 300:  # > 5 minutes
+        if operation_duration_estimate > 300:  # > 5 minutes
             return max(self.update_interval_seconds, 5.0)
+        elif operation_duration_estimate > 60:  # > 1 minute
+            return max(self.update_interval_seconds, 2.0)
         
         return self.update_interval_seconds
 

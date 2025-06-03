@@ -184,6 +184,15 @@ class DocumentTree:
         logger.debug(f"Removed section '{section.title}' and {len(sections_to_remove) - 1} descendants")
         return True
     
+    def get_all_sections(self) -> List[DocumentSection]:
+        """
+        Get all sections in the tree in document order.
+        
+        Returns:
+            List of all sections in the tree
+        """
+        return self._sections.copy()
+    
     def _get_all_descendants(self, section: DocumentSection) -> List[DocumentSection]:
         """
         Get all descendants of a section recursively.
@@ -301,6 +310,20 @@ class DocumentTree:
                     "content_length": len(section.content)
                 })
         return toc
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the DocumentTree to a dictionary representation.
+        
+        Returns:
+            Dictionary representation of the document tree
+        """
+        return {
+            'root': self.root.to_dict() if self.root else None,
+            'section_count': len(self._sections),
+            'max_depth': self.get_max_depth(),
+            'levels_used': self.get_levels_used()
+        }
     
     def __repr__(self) -> str:
         """String representation for debugging."""

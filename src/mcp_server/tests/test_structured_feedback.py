@@ -14,6 +14,7 @@ import time
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from dataclasses import asdict
+import tempfile
 
 from src.mcp_server.protocol.response_formatter import (
     ResponseFormatter, ProgressResponse, StatusResponse
@@ -2510,23 +2511,208 @@ class TestFeedbackConfiguration:
     
     def test_feedback_configuration_loading(self):
         """Test loading of feedback configuration from config files."""
-        # Should load feedback configuration from system configuration
-        assert False, "Feedback configuration loading not implemented"
+        import tempfile
+        import json
+        from src.mcp_server.feedback.feedback_configuration import (
+            FeedbackConfiguration, VerbosityLevel, FeedbackType
+        )
+        
+        # Create temporary config file
+        config_data = {
+            "frequency": {
+                "update_interval_seconds": 2.0,
+                "batch_size": 20,
+                "max_frequency_hz": 5.0,
+                "enable_adaptive_frequency": False
+            },
+            "verbosity": {
+                "global_verbosity": "detailed",
+                "per_type_verbosity": {
+                    "progress": "verbose",
+                    "error": "debug"
+                },
+                "include_timestamps": False,
+                "include_debug_info": True
+            },
+            "system": {
+                "enabled": False,
+                "max_concurrent_operations": 50,
+                "enable_caching": False
+            }
+        }
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(config_data, f)
+            config_path = f.name
+        
+        try:
+            # Test loading configuration
+            config = FeedbackConfiguration(config_path)
+            
+            # Verify frequency config
+            freq_config = config.get_frequency_config()
+            assert freq_config.update_interval_seconds == 2.0
+            assert freq_config.batch_size == 20
+            assert freq_config.max_frequency_hz == 5.0
+            assert freq_config.enable_adaptive_frequency is False
+            
+            # Verify verbosity config
+            verb_config = config.get_verbosity_config()
+            assert verb_config.global_verbosity == VerbosityLevel.DETAILED
+            assert verb_config.get_verbosity_for_type(FeedbackType.PROGRESS) == VerbosityLevel.VERBOSE
+            assert verb_config.get_verbosity_for_type(FeedbackType.ERROR) == VerbosityLevel.DEBUG
+            assert verb_config.include_timestamps is False
+            assert verb_config.include_debug_info is True
+            
+            # Verify system config
+            sys_config = config.get_system_config()
+            assert sys_config.enabled is False
+            assert sys_config.max_concurrent_operations == 50
+            assert sys_config.enable_caching is False
+            
+        finally:
+            import os
+            os.unlink(config_path)
     
     def test_progress_reporting_frequency_configuration(self):
         """Test configuration of progress reporting frequency."""
-        # Should allow configuration of progress update intervals
-        assert False, "Progress reporting frequency configuration not implemented"
+        from src.mcp_server.feedback.feedback_configuration import (
+            FeedbackConfiguration, ProgressReportingFrequencyConfig
+        )
+        
+        config = FeedbackConfiguration()
+        
+        # Test default frequency config
+        freq_config = config.get_frequency_config()
+        assert freq_config.update_interval_seconds == 1.0
+        assert freq_config.batch_size == 10
+        assert freq_config.max_frequency_hz == 10.0
+        assert freq_config.enable_adaptive_frequency is True
+        
+        # Test setting new frequency config
+        new_freq_config = ProgressReportingFrequencyConfig(
+            update_interval_seconds=0.5,
+            batch_size=5,
+            max_frequency_hz=20.0,
+            enable_adaptive_frequency=False
+        )
+        
+        config.set_frequency_config(new_freq_config)
+        updated_config = config.get_frequency_config()
+        
+        assert updated_config.update_interval_seconds == 0.5
+        assert updated_config.batch_size == 5
+        assert updated_config.max_frequency_hz == 20.0
+        assert updated_config.enable_adaptive_frequency is False
+        
+        # Test adaptive frequency calculation
+        adaptive_config = ProgressReportingFrequencyConfig(enable_adaptive_frequency=True)
+        
+        # Test short operation (no change)
+        short_interval = adaptive_config.get_effective_update_interval(30.0)
+        assert short_interval == 1.0
+        
+        # Test medium operation (increase interval)
+        medium_interval = adaptive_config.get_effective_update_interval(120.0)
+        assert medium_interval == 2.0
+        
+        # Test long operation (further increase)
+        long_interval = adaptive_config.get_effective_update_interval(600.0)
+        assert long_interval == 5.0
     
     def test_feedback_verbosity_configuration(self):
         """Test configuration of feedback verbosity levels."""
-        # Should support different verbosity levels for feedback
-        assert False, "Feedback verbosity configuration not implemented"
+        from src.mcp_server.feedback.feedback_configuration import (
+            FeedbackConfiguration, VerbosityLevel, FeedbackType
+        )
+        
+        config = FeedbackConfiguration()
+        
+        # Test default verbosity config
+        verb_config = config.get_verbosity_config()
+        assert verb_config.global_verbosity == VerbosityLevel.STANDARD
+        assert verb_config.include_timestamps is True
+        assert verb_config.include_operation_context is True
+        assert verb_config.include_performance_metrics is False
+        assert verb_config.include_debug_info is False
+        
+        # Test setting global verbosity level
+        config.set_verbosity_level(VerbosityLevel.VERBOSE)
+        updated_config = config.get_verbosity_config()
+        assert updated_config.global_verbosity == VerbosityLevel.VERBOSE
+        
+        # Test setting type-specific verbosity
+        config.set_verbosity_level(VerbosityLevel.DEBUG, FeedbackType.ERROR)
+        config.set_verbosity_level(VerbosityLevel.MINIMAL, FeedbackType.PROGRESS)
+        
+        verb_config = config.get_verbosity_config()
+        assert verb_config.get_verbosity_for_type(FeedbackType.ERROR) == VerbosityLevel.DEBUG
+        assert verb_config.get_verbosity_for_type(FeedbackType.PROGRESS) == VerbosityLevel.MINIMAL
+        assert verb_config.get_verbosity_for_type(FeedbackType.STATUS) == VerbosityLevel.VERBOSE  # Global default
+        
+        # Test detail inclusion based on verbosity
+        assert verb_config.should_include_detail(FeedbackType.ERROR, "debug_info") is True  # DEBUG level
+        assert verb_config.should_include_detail(FeedbackType.PROGRESS, "timestamps") is True  # MINIMAL includes timestamps
+        assert verb_config.should_include_detail(FeedbackType.PROGRESS, "performance_metrics") is False  # MINIMAL doesn't include metrics
     
     def test_custom_feedback_template_configuration(self):
         """Test configuration of custom feedback templates."""
-        # Should support custom templates for feedback messages
-        assert False, "Custom feedback template configuration not implemented"
+        from src.mcp_server.feedback.feedback_configuration import (
+            FeedbackConfiguration, FeedbackTemplate
+        )
+        
+        config = FeedbackConfiguration()
+        template_config = config.get_template_config()
+        
+        # Test default templates are loaded
+        assert len(template_config.templates) == 4  # Default templates
+        assert template_config.get_template("progress_update") is not None
+        assert template_config.get_template("error_message") is not None
+        
+        # Test adding custom template
+        custom_template = FeedbackTemplate(
+            name="custom_progress",
+            pattern="Custom: {status} - {details} ({timestamp})",
+            required_variables=["status", "details"],
+            optional_variables=["timestamp"],
+            description="Custom progress template"
+        )
+        
+        config.add_custom_template(custom_template)
+        
+        # Verify custom template was added
+        retrieved_template = template_config.get_template("custom_progress")
+        assert retrieved_template is not None
+        assert retrieved_template.name == "custom_progress"
+        assert retrieved_template.pattern == "Custom: {status} - {details} ({timestamp})"
+        assert "status" in retrieved_template.required_variables
+        assert "timestamp" in retrieved_template.optional_variables
+        
+        # Test template formatting
+        variables = {
+            "status": "In Progress",
+            "details": "Processing documents",
+            "timestamp": "2024-01-01 12:00:00"
+        }
+        
+        formatted = retrieved_template.format_message(variables)
+        expected = "Custom: In Progress - Processing documents (2024-01-01 12:00:00)"
+        assert formatted == expected
+        
+        # Test template validation (missing required variable)
+        try:
+            retrieved_template.format_message({"details": "test"})  # Missing 'status'
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert "Missing required variables" in str(e)
+        
+        # Test disabling custom templates
+        template_config.enable_custom_templates = False
+        try:
+            config.add_custom_template(FeedbackTemplate(name="test", pattern="test"))
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert "Custom templates are disabled" in str(e)
 
 
 class TestFeedbackPerformanceOptimization:

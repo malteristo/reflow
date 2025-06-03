@@ -544,6 +544,79 @@ class ConfigManager:
         # Update config_file if a new path was provided
         if config_path:
             self.config_file = str(save_path)
+        
+        self._config = self.config
+        self._loaded = True
+        self.logger.info(f"Configuration saved to {config_path}")
+    
+    def _deep_merge_dicts(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Deep merge two dictionaries with override taking precedence.
+        
+        Args:
+            base: Base configuration dictionary
+            override: Override configuration dictionary
+            
+        Returns:
+            Merged configuration dictionary
+        """
+        result = deepcopy(base)
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge_dicts(result[key], value)
+            else:
+                result[key] = deepcopy(value)
+        return result
+    
+    def _resolve_config_inheritance(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve configuration inheritance by processing 'extends' directives.
+        
+        Args:
+            config: Configuration dictionary to process
+            
+        Returns:
+            Configuration with inheritance resolved
+        """
+        return self.inheritance.resolve_config_inheritance(config)
+    
+    def _convert_env_value(self, value: str, target_type: type = str) -> Any:
+        """
+        Convert environment variable string value to appropriate type.
+        
+        Args:
+            value: String value from environment variable
+            target_type: Target type for conversion
+            
+        Returns:
+            Converted value
+        """
+        return self.env_handler.convert_env_value(value, target_type)
+    
+    def _load_schema(self, schema_file: str) -> Dict[str, Any]:
+        """
+        Load JSON schema from file.
+        
+        Args:
+            schema_file: Path to schema file
+            
+        Returns:
+            Schema dictionary
+        """
+        return self.schema_validator.load_schema(schema_file)
+    
+    def _validate_config_against_schema(self, config: Dict[str, Any], schema: Dict[str, Any]) -> bool:
+        """
+        Validate configuration against schema.
+        
+        Args:
+            config: Configuration to validate
+            schema: Schema to validate against
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        return self.schema_validator.validate_config(config, schema)
     
     def _trigger_embedding_model_change(self, key: str, old_value: Any, new_value: Any) -> None:
         """

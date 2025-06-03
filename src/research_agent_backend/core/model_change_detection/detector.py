@@ -305,6 +305,50 @@ class ModelChangeDetector(SingletonBase, metaclass=SingletonMeta):
         
         return events
     
+    def save_to_disk(self) -> None:
+        """
+        Manually save current model fingerprints to disk.
+        
+        Provides manual control over persistence, useful when auto_save is disabled
+        or for explicit checkpoint operations.
+        
+        Raises:
+            PersistenceError: If saving fails
+        """
+        with self._instance_lock:
+            try:
+                from .persistence import PersistenceManager
+                persistence = PersistenceManager(self.storage_path)
+                persistence.save_to_disk(self._fingerprints)
+                logger.info(f"Manually saved {len(self._fingerprints)} model fingerprints to disk")
+            except Exception as e:
+                logger.error(f"Manual save failed: {e}")
+                from .types import PersistenceError
+                raise PersistenceError(f"Failed to save model fingerprints: {e}")
+    
+    def load_from_disk(self) -> None:
+        """
+        Manually load model fingerprints from disk.
+        
+        Replaces current in-memory fingerprints with those loaded from disk.
+        Useful for reloading state or recovering from memory corruption.
+        
+        Raises:
+            PersistenceError: If loading fails
+        """
+        with self._instance_lock:
+            try:
+                from .persistence import PersistenceManager
+                persistence = PersistenceManager(self.storage_path)
+                old_count = len(self._fingerprints)
+                self._fingerprints = persistence.load_from_disk()
+                new_count = len(self._fingerprints)
+                logger.info(f"Manually loaded {new_count} model fingerprints from disk (was {old_count})")
+            except Exception as e:
+                logger.error(f"Manual load failed: {e}")
+                from .types import PersistenceError
+                raise PersistenceError(f"Failed to load model fingerprints: {e}")
+    
     def _load_fingerprints_safely(self) -> None:
         """
         Safely attempt to load fingerprints, handling errors gracefully.
