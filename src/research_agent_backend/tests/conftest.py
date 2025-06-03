@@ -12,6 +12,26 @@ import numpy as np
 pytest_plugins = ("pytest_asyncio",)
 
 
+@pytest.fixture(autouse=True)
+def ensure_integration_patches_cleanup():
+    """
+    Global fixture to ensure integration patches are always cleaned up.
+    
+    This prevents integration test patches from persisting across tests,
+    which was causing interface mismatch errors in the test suite.
+    """
+    # Yield to run the test
+    yield
+    
+    # Cleanup after each test
+    try:
+        from research_agent_backend.core.integration_pipeline import ensure_patches_removed
+        ensure_patches_removed()
+    except ImportError:
+        # Module might not be available in all test contexts
+        pass
+
+
 @pytest.fixture
 def temp_directory():
     """Provide a temporary directory for testing."""

@@ -29,10 +29,12 @@ from .models import (
     MockChunk
 )
 
-# Integration support functions
+# Import integration support functions
 from .integration_support import (
     apply_integration_patches,
-    remove_integration_patches
+    remove_integration_patches,
+    is_patches_applied,
+    ensure_patches_removed,
 )
 
 # For backward compatibility, ensure all original module exports are available
@@ -54,5 +56,7 @@ __all__ = [
     
     # Integration support
     'apply_integration_patches',
-    'remove_integration_patches'
+    'remove_integration_patches',
+    'is_patches_applied',
+    'ensure_patches_removed',
 ] 

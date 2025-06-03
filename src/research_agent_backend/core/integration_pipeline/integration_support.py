@@ -6,10 +6,12 @@ management for integration testing support.
 """
 
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from .models import StorageResult, Collection, MockChunk
 
+# Store original methods for proper restoration
+_original_methods = {}
 
 def _add_documents_integration(self, prepared_data: List[Dict[str, Any]]) -> StorageResult:
     """Enhanced document addition with realistic metrics."""
@@ -104,8 +106,20 @@ def apply_integration_patches():
     """
     Apply integration patches to ChromaDBManager for integration testing.
     This should only be called explicitly in integration tests.
+    
+    Stores original methods for proper restoration.
     """
     from ..vector_store import ChromaDBManager
+    
+    # Store original methods before patching
+    if 'add_documents' not in _original_methods:
+        _original_methods['add_documents'] = getattr(ChromaDBManager, 'add_documents', None)
+    if 'create_collection' not in _original_methods:
+        _original_methods['create_collection'] = getattr(ChromaDBManager, 'create_collection', None)
+    if 'get_document_chunks' not in _original_methods:
+        _original_methods['get_document_chunks'] = getattr(ChromaDBManager, 'get_document_chunks', None)
+    
+    # Apply patches
     ChromaDBManager.add_documents = _add_documents_integration
     ChromaDBManager.create_collection = _create_collection_integration
     ChromaDBManager.get_document_chunks = _get_document_chunks_integration
@@ -116,5 +130,27 @@ def remove_integration_patches():
     Remove integration patches and restore original methods.
     """
     from ..vector_store import ChromaDBManager
-    # Note: This would require storing original methods before patching
-    # For now, we'll avoid global patching instead 
+    
+    # Restore original methods
+    if 'add_documents' in _original_methods and _original_methods['add_documents'] is not None:
+        ChromaDBManager.add_documents = _original_methods['add_documents']
+    if 'create_collection' in _original_methods and _original_methods['create_collection'] is not None:
+        ChromaDBManager.create_collection = _original_methods['create_collection']
+    if 'get_document_chunks' in _original_methods and _original_methods['get_document_chunks'] is not None:
+        ChromaDBManager.get_document_chunks = _original_methods['get_document_chunks']
+    
+    # Clear stored methods
+    _original_methods.clear()
+
+
+def is_patches_applied() -> bool:
+    """Check if integration patches are currently applied."""
+    from ..vector_store import ChromaDBManager
+    return hasattr(ChromaDBManager.create_collection, '__name__') and \
+           ChromaDBManager.create_collection.__name__ == '_create_collection_integration'
+
+
+def ensure_patches_removed():
+    """Ensure integration patches are removed - utility for test cleanup."""
+    if is_patches_applied():
+        remove_integration_patches() 
