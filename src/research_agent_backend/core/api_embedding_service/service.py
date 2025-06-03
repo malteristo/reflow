@@ -108,6 +108,15 @@ class APIEmbeddingService(EmbeddingService):
         self.client = APIClient(config)
         self.batch_processor = BatchProcessor(config, self.client)
         self.model_integration = ModelIntegration(config)
+        
+        # Automatically register model with change detection system
+        try:
+            from ..model_change_detection.integration_hooks import auto_register_embedding_service
+            auto_register_embedding_service(self)
+            logger.debug(f"Auto-registered API model '{self.config.model_name}' with change detection system")
+        except Exception as e:
+            # Don't fail initialization if auto-registration fails
+            logger.warning(f"Failed to auto-register API model '{self.config.model_name}': {e}")
     
     @classmethod
     def from_environment(cls, provider: str) -> 'APIEmbeddingService':

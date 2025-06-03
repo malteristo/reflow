@@ -24,6 +24,7 @@ from .embedding_service import (
 )
 from .enhanced_caching import ModelAwareCacheManager
 from .model_change_detection.fingerprint import ModelFingerprint
+from .model_change_detection.integration_hooks import auto_register_embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,14 @@ class LocalEmbeddingService(EmbeddingService):
             )
         except Exception as e:
             raise ModelNotFoundError(f"Failed to load model {self._model_name}: {str(e)}")
+        
+        # Automatically register model with change detection system
+        try:
+            auto_register_embedding_service(self)
+            logger.debug(f"Auto-registered model '{self._model_name}' with change detection system")
+        except Exception as e:
+            # Don't fail initialization if auto-registration fails
+            logger.warning(f"Failed to auto-register model '{self._model_name}': {e}")
     
     def embed_text(self, text: str) -> List[float]:
         """

@@ -40,6 +40,16 @@ from .model_change_detection import (
     ModelChangeError,
     FingerprintMismatchError,
     PersistenceError,
+    # Configuration integration
+    ConfigurationIntegrationHooks,
+    auto_register_embedding_service,
+    add_config_change_callback,
+    trigger_config_change,
+    # Query validation
+    ModelCompatibilityValidator,
+    QueryValidationError,
+    validate_query_compatibility,
+    set_compatibility_strict_mode,
 )
 
 __all__ = [
@@ -65,4 +75,14 @@ __all__ = [
     "ModelChangeError",
     "FingerprintMismatchError",
     "PersistenceError",
+    # Configuration integration
+    "ConfigurationIntegrationHooks",
+    "auto_register_embedding_service",
+    "add_config_change_callback",
+    "trigger_config_change",
+    # Query validation
+    "ModelCompatibilityValidator",
+    "QueryValidationError",
+    "validate_query_compatibility",
+    "set_compatibility_strict_mode",
 ]

@@ -5,6 +5,7 @@ Main server implementation using FastMCP framework for STDIO communication
 with Cursor IDE and other MCP clients.
 
 Implements subtask 15.2: STDIO Communication Layer.
+Enhanced with model change detection tools for Task 35.
 """
 
 import asyncio
@@ -22,6 +23,11 @@ from .tools.collections_tool import ManageCollectionsTool
 from .tools.documents_tool import IngestDocumentsTool
 from .tools.projects_tool import ManageProjectsTool
 from .tools.augment_tool import AugmentKnowledgeTool, SubmitFeedbackTool
+from .tools.model_management_tools import (
+    DetectModelChangesTool,
+    ReindexCollectionTool,
+    GetReindexStatusTool
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,7 @@ class MCPServer:
     
     Provides FastMCP-based server implementation with STDIO communication
     support for integration with Cursor IDE and other MCP clients.
+    Enhanced with model change detection capabilities.
     """
     
     def __init__(self, name: str = "research-agent", version: str = "0.1.0"):
@@ -66,17 +73,23 @@ class MCPServer:
         self.augment_tool = AugmentKnowledgeTool()
         self.feedback_tool = SubmitFeedbackTool()
         
+        # Initialize model management tools
+        self.detect_model_changes_tool = DetectModelChangesTool()
+        self.reindex_collection_tool = ReindexCollectionTool()
+        self.get_reindex_status_tool = GetReindexStatusTool()
+        
         # Server configuration
         self.timeout_config = {
             'default': 30,
             'query': 60,
-            'ingestion': 300
+            'ingestion': 300,
+            'reindexing': 3600  # Extended timeout for reindexing operations
         }
         
         # Track registered tools
         self._tools = {}
         
-        logger.info(f"MCPServer '{name}' v{version} initialized")
+        logger.info(f"MCPServer '{name}' v{version} initialized with model management")
     
     @property
     def is_initialized(self) -> bool:
@@ -121,7 +134,11 @@ class MCPServer:
             self.documents_tool,
             self.projects_tool,
             self.augment_tool,
-            self.feedback_tool
+            self.feedback_tool,
+            # Model management tools
+            self.detect_model_changes_tool,
+            self.reindex_collection_tool,
+            self.get_reindex_status_tool
         ]
         
         for tool in tools:
@@ -266,7 +283,11 @@ class MCPServer:
                 self.documents_tool,
                 self.projects_tool,
                 self.augment_tool,
-                self.feedback_tool
+                self.feedback_tool,
+                # Model management tools
+                self.detect_model_changes_tool,
+                self.reindex_collection_tool,
+                self.get_reindex_status_tool
             ]
             
             for tool in tools:
@@ -337,16 +358,16 @@ class MCPServer:
         @self.mcp.tool()
         async def ingest_documents(
             action: str,
-            file_path: Optional[str] = None,
-            folder_path: Optional[str] = None,
-            collection: str = "default"
+            path: Optional[str] = None,
+            collection: Optional[str] = None,
+            document_id: Optional[str] = None
         ) -> Dict[str, Any]:
-            """Ingest documents into knowledge base."""
+            """Ingest documents into the knowledge base."""
             params = {
                 "action": action,
-                "file_path": file_path,
-                "folder_path": folder_path,
-                "collection": collection
+                "path": path,
+                "collection": collection,
+                "document_id": document_id
             }
             return await self.documents_tool.execute(params)
         
@@ -356,7 +377,7 @@ class MCPServer:
             name: Optional[str] = None,
             description: Optional[str] = None
         ) -> Dict[str, Any]:
-            """Manage projects."""
+            """Manage research projects."""
             params = {
                 "action": action,
                 "name": name,
@@ -367,15 +388,15 @@ class MCPServer:
         @self.mcp.tool()
         async def augment_knowledge(
             action: str,
-            query: Optional[str] = None,
-            result: Optional[Dict[str, Any]] = None,
-            collection: str = "default"
+            content: Optional[str] = None,
+            source: Optional[str] = None,
+            collection: Optional[str] = None
         ) -> Dict[str, Any]:
-            """Augment knowledge base."""
+            """Augment knowledge base with external information."""
             params = {
                 "action": action,
-                "query": query,
-                "result": result,
+                "content": content,
+                "source": source,
                 "collection": collection
             }
             return await self.augment_tool.execute(params)
@@ -398,6 +419,57 @@ class MCPServer:
             }
             return await self.feedback_tool.execute(params)
         
+        # Setup model management tools
+        @self.mcp.tool()
+        async def detect_model_changes(
+            auto_register: bool = True,
+            show_collections: bool = True,
+            check_compatibility: bool = True
+        ) -> Dict[str, Any]:
+            """Detect embedding model changes and identify collections requiring re-indexing."""
+            params = {
+                "auto_register": auto_register,
+                "show_collections": show_collections,
+                "check_compatibility": check_compatibility
+            }
+            return await self.detect_model_changes_tool.execute(params)
+        
+        @self.mcp.tool()
+        async def reindex_collection(
+            collections: Optional[str] = None,
+            parallel: bool = True,
+            workers: Optional[int] = None,
+            batch_size: int = 50,
+            force: bool = False,
+            track_progress: bool = True
+        ) -> Dict[str, Any]:
+            """Re-index collections with the current embedding model."""
+            params = {
+                "collections": collections,
+                "parallel": parallel,
+                "workers": workers,
+                "batch_size": batch_size,
+                "force": force,
+                "track_progress": track_progress
+            }
+            return await self.reindex_collection_tool.execute(params)
+        
+        @self.mcp.tool()
+        async def get_reindex_status(
+            collection: Optional[str] = None,
+            show_completed: bool = True,
+            show_progress_details: bool = True,
+            include_history: bool = False
+        ) -> Dict[str, Any]:
+            """Get re-indexing status and progress information."""
+            params = {
+                "collection": collection,
+                "show_completed": show_completed,
+                "show_progress_details": show_progress_details,
+                "include_history": include_history
+            }
+            return await self.get_reindex_status_tool.execute(params)
+        
         # Register tools in internal tracking
         self._tools["ping"] = ping
         self._tools["server_info"] = server_info
@@ -407,6 +479,10 @@ class MCPServer:
         self._tools["manage_projects"] = self.projects_tool
         self._tools["augment_knowledge"] = self.augment_tool
         self._tools["submit_feedback"] = self.feedback_tool
+        # Model management tools
+        self._tools["detect_model_changes"] = self.detect_model_changes_tool
+        self._tools["reindex_collection"] = self.reindex_collection_tool
+        self._tools["get_reindex_status"] = self.get_reindex_status_tool
         
         logger.debug("Tools setup complete")
 

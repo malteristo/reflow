@@ -243,6 +243,9 @@ class ConfigManager:
         if not self._loaded:
             self.load_config()
         
+        # Store old value for change detection
+        old_value = self.get(key, None)
+        
         keys = key.split('.')
         config = self._config
         
@@ -254,6 +257,10 @@ class ConfigManager:
         
         # Set the final value
         config[keys[-1]] = value
+        
+        # Trigger model change detection for embedding model changes
+        if key.startswith('embedding_model') and old_value != value:
+            self._trigger_embedding_model_change(key, old_value, value)
     
     def has(self, key: str) -> bool:
         """
@@ -519,26 +526,50 @@ class ConfigManager:
     
     def save_config(self, config_path: Optional[Union[str, Path]] = None) -> None:
         """
-        Save the current in-memory configuration to file.
+        Save the current configuration to a file.
         
         Args:
-            config_path: Path to save configuration (defaults to current config file)
-            
-        Raises:
-            ConfigurationError: If saving fails
+            config_path: Path to save the configuration file
+                        (uses default config file if None)
         """
         if not self._loaded:
-            raise ConfigurationError("No configuration loaded to save")
+            raise ConfigurationError("Cannot save unloaded configuration")
         
-        target_path = config_path or self.file_ops.resolve_path(self.config_file)
+        # Use provided path or default config file
+        save_path = Path(config_path) if config_path else Path(self.config_file)
         
+        # Save configuration
+        self.file_ops.save_config(self._config, save_path)
+        
+        # Update config_file if a new path was provided
+        if config_path:
+            self.config_file = str(save_path)
+    
+    def _trigger_embedding_model_change(self, key: str, old_value: Any, new_value: Any) -> None:
+        """
+        Trigger model change detection when embedding model configuration changes.
+        
+        Args:
+            key: Configuration key that changed
+            old_value: Previous value
+            new_value: New value
+        """
         try:
-            with open(target_path, 'w') as f:
-                json.dump(self._config, f, indent=2)
+            from ...core.model_change_detection.integration_hooks import trigger_config_change
             
-            self.logger.info(f"Configuration saved to: {target_path}")
+            # Trigger configuration change detection
+            trigger_config_change('embedding_model', {
+                'config_key': key,
+                'old_value': old_value,
+                'new_value': new_value,
+                'full_config': self.get('embedding_model', {})
+            })
             
+            logger.debug(f"Triggered model change detection for config key: {key}")
+            
+        except ImportError:
+            # Model change detection not available
+            logger.debug("Model change detection not available, skipping callback")
         except Exception as e:
-            error_msg = f"Failed to save configuration: {e}"
-            self.logger.error(error_msg)
-            raise ConfigurationError(error_msg) from e 
+            # Don't fail configuration changes if model change detection fails
+            logger.warning(f"Failed to trigger model change detection: {e}") 
