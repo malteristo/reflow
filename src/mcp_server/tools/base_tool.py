@@ -6,12 +6,19 @@ CLI commands to MCP protocol operations.
 
 Implements subtask 15.3: Map CLI Tools to MCP Resources and Actions.
 Enhanced with comprehensive parameter validation (subtask 15.4).
+Updated with standardized response formatting (Task 32).
 """
 
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
+
+# Import standardized response formatter
+try:
+    from ..utils.response_formatter import ResponseFormatter
+except ImportError:
+    ResponseFormatter = None
 
 # Import validation components
 try:
@@ -42,10 +49,12 @@ class BaseMCPTool(ABC):
     Base class for all MCP tools.
     
     Provides common functionality for parameter validation, error handling,
-    and response formatting for MCP tools that interface with CLI commands.
+    and standardized response formatting for MCP tools that interface with CLI commands.
     
-    Enhanced with comprehensive validation including JSON schema validation,
-    security validation, and business logic validation.
+    Enhanced with:
+    - Comprehensive validation (JSON schema, security, business logic)
+    - Standardized response formatting (Task 32)
+    - Parameter sanitization and security checks
     """
     
     def __init__(self):
@@ -53,8 +62,21 @@ class BaseMCPTool(ABC):
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.logger.debug(f"Initialized {self.__class__.__name__}")
         
+        # Initialize standardized response formatter
+        self._init_response_formatter()
+        
         # Initialize validation components if available
         self._init_validation_components()
+    
+    def _init_response_formatter(self) -> None:
+        """Initialize the standardized response formatter."""
+        if ResponseFormatter:
+            self.response_formatter = ResponseFormatter(self.get_tool_name())
+            self.standardized_responses = True
+            self.logger.debug("Standardized response formatter initialized")
+        else:
+            self.standardized_responses = False
+            self.logger.warning("ResponseFormatter not available, using legacy responses")
     
     def _init_validation_components(self) -> None:
         """Initialize validation components."""
@@ -103,7 +125,7 @@ class BaseMCPTool(ABC):
             parameters: Dictionary of parameters for the tool
             
         Returns:
-            Dict containing the tool execution result
+            Dict containing the tool execution result in standardized format
         """
         pass
     
@@ -200,110 +222,97 @@ class BaseMCPTool(ABC):
                 all_errors.extend(tool_result["errors"])
             if tool_result.get("warnings"):
                 all_warnings.extend(tool_result["warnings"])
-            
-            return {
-                "valid": len(all_errors) == 0,
-                "errors": all_errors,
-                "warnings": all_warnings,
-                "sanitized_params": sanitized_params
-            }
-            
+        
         except Exception as e:
-            self.logger.error(f"Enhanced validation failed: {e}", exc_info=True)
-            return {
-                "valid": False,
-                "errors": [{"field": "validation", "message": f"Validation system error: {str(e)}", "category": "system"}],
-                "warnings": [],
-                "sanitized_params": parameters
-            }
+            all_errors.append({
+                "field": "validation_system",
+                "message": f"Validation system error: {str(e)}",
+                "category": "system"
+            })
+        
+        return {
+            "valid": len(all_errors) == 0,
+            "errors": all_errors,
+            "warnings": all_warnings,
+            "sanitized_params": sanitized_params
+        }
     
     def _validate_security(self, parameters: Dict[str, Any]) -> tuple[List[Dict], List[str]]:
-        """Apply security validation to parameters."""
+        """
+        Validate parameters for security issues.
+        
+        Args:
+            parameters: Parameters to validate
+            
+        Returns:
+            Tuple of (errors, warnings)
+        """
         errors = []
         warnings = []
         
-        for key, value in parameters.items():
-            if isinstance(value, str):
-                # Check for path parameters
-                if 'path' in key.lower() or 'file' in key.lower():
-                    result = self.security_validator.validate_file_path(value)
-                    if not result["valid"]:
-                        errors.extend([{"field": key, "message": error, "category": "security"} for error in result["errors"]])
+        try:
+            if self.security_validator:
+                security_result = self.security_validator.validate_parameters(parameters)
+                if security_result.get("path_injection_detected"):
+                    errors.append({
+                        "field": "path_parameters",
+                        "message": "Potential path injection attack detected",
+                        "category": "security"
+                    })
                 
-                # Check for collection names
-                elif 'collection' in key.lower():
-                    result = self.security_validator.validate_collection_name(value)
-                    if not result["valid"]:
-                        errors.extend([{"field": key, "message": error, "category": "security"} for error in result["errors"]])
-                
-                # Check for project names
-                elif 'project' in key.lower():
-                    result = self.security_validator.validate_project_name(value)
-                    if not result["valid"]:
-                        errors.extend([{"field": key, "message": error, "category": "security"} for error in result["errors"]])
-                
-                # General text input sanitization
-                else:
-                    result = self.security_validator.sanitize_text_input(value)
-                    if not result["safe"]:
-                        errors.extend([{"field": key, "message": error, "category": "security"} for error in result["errors"]])
+                if security_result.get("suspicious_patterns"):
+                    for pattern in security_result["suspicious_patterns"]:
+                        warnings.append(f"Suspicious pattern detected: {pattern}")
+        
+        except Exception as e:
+            warnings.append(f"Security validation failed: {str(e)}")
         
         return errors, warnings
     
     def _validate_business_logic(self, parameters: Dict[str, Any]) -> tuple[List[Dict], List[str]]:
-        """Apply business logic validation to parameters."""
+        """
+        Validate parameters against business logic rules.
+        
+        Args:
+            parameters: Parameters to validate
+            
+        Returns:
+            Tuple of (errors, warnings)
+        """
         errors = []
         warnings = []
         
-        # Validate query parameters
-        if "query" in parameters:
-            result = self.business_validator.validate_query_content(parameters["query"])
-            if not result["valid"]:
-                errors.extend([{"field": "query", "message": error, "category": "business_logic"} for error in result["errors"]])
-            if result.get("warnings"):
-                warnings.extend(result["warnings"])
+        try:
+            if self.business_validator:
+                # Validate collection names
+                if "collection" in parameters:
+                    collection_result = self.business_validator.validate_collection_name(parameters["collection"])
+                    if not collection_result["valid"]:
+                        errors.append({
+                            "field": "collection",
+                            "message": collection_result["message"],
+                            "category": "business_logic"
+                        })
+                
+                # Validate file paths
+                if "path" in parameters:
+                    path_result = self.business_validator.validate_file_path(parameters["path"])
+                    if not path_result["valid"]:
+                        errors.append({
+                            "field": "path",
+                            "message": path_result["message"],
+                            "category": "business_logic"
+                        })
         
-        # Validate top_k parameter
-        if "top_k" in parameters:
-            result = self.business_validator.validate_top_k_parameter(parameters["top_k"])
-            if not result["valid"]:
-                errors.extend([{"field": "top_k", "message": error, "category": "business_logic"} for error in result["errors"]])
-        
-        # Validate collections parameter
-        if "collections" in parameters and parameters["collections"] is not None:
-            result = self.business_validator.validate_collections_parameter(parameters["collections"])
-            if not result["valid"]:
-                errors.extend([{"field": "collections", "message": error, "category": "business_logic"} for error in result["errors"]])
-            if result.get("warnings"):
-                warnings.extend(result["warnings"])
-        
-        # Validate collection_name parameter
-        if "collection_name" in parameters:
-            result = self.business_validator.validate_collection_name_format(parameters["collection_name"])
-            if not result["valid"]:
-                errors.extend([{"field": "collection_name", "message": error, "category": "business_logic"} for error in result["errors"]])
-            if result.get("warnings"):
-                warnings.extend(result["warnings"])
-        
-        # Validate project_name parameter
-        if "project_name" in parameters:
-            result = self.business_validator.validate_project_name_format(parameters["project_name"])
-            if not result["valid"]:
-                errors.extend([{"field": "project_name", "message": error, "category": "business_logic"} for error in result["errors"]])
-            if result.get("warnings"):
-                warnings.extend(result["warnings"])
-        
-        # Validate collection_type parameter
-        if "collection_type" in parameters:
-            result = self.business_validator.validate_collection_type(parameters["collection_type"])
-            if not result["valid"]:
-                errors.extend([{"field": "collection_type", "message": error, "category": "business_logic"} for error in result["errors"]])
+        except Exception as e:
+            warnings.append(f"Business logic validation failed: {str(e)}")
         
         return errors, warnings
     
+    # Required methods for subclasses to implement
     def get_required_parameters(self) -> List[str]:
         """
-        Get the list of required parameters for this tool.
+        Get list of required parameters for this tool.
         
         Returns:
             List of required parameter names
@@ -312,196 +321,247 @@ class BaseMCPTool(ABC):
     
     def validate_tool_parameters(self, parameters: Dict[str, Any]) -> List[ToolValidationError]:
         """
-        Perform tool-specific parameter validation.
+        Validate tool-specific parameters.
         
         Args:
-            parameters: Dictionary of parameters to validate
+            parameters: Parameters to validate
             
         Returns:
-            List of validation errors specific to this tool
+            List of validation errors
         """
         return []
     
     def validate_tool_parameters_enhanced(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Perform enhanced tool-specific parameter validation.
+        Enhanced tool-specific parameter validation.
         
         Args:
-            parameters: Dictionary of parameters to validate
+            parameters: Parameters to validate
             
         Returns:
-            Dict containing enhanced validation result
+            Dict with validation results including errors and warnings
         """
-        # Default implementation converts basic validation to enhanced format
-        basic_errors = self.validate_tool_parameters(parameters)
-        return {
-            "errors": [{"field": err.parameter, "message": err.message, "category": "tool_specific"} for err in basic_errors],
-            "warnings": []
-        }
+        return {"errors": [], "warnings": []}
     
     def get_parameter_schema(self) -> Dict[str, Any]:
         """
-        Get the JSON schema for this tool's parameters.
+        Get JSON schema for parameter validation.
         
         Returns:
-            Dict containing the JSON schema for parameters
+            JSON schema dictionary or None if not implemented
         """
-        return {
-            "type": "object",
-            "properties": {},
-            "required": self.get_required_parameters()
-        }
+        return {}
     
     def get_validation_config(self) -> Dict[str, Any]:
         """
         Get validation configuration for this tool.
         
         Returns:
-            Dict containing validation settings
+            Dict with validation settings and rules
         """
         return {
-            "enhanced_validation_enabled": self.enhanced_validation_available,
-            "validation_categories": ["security", "business_logic", "schema_validation"],
-            "strict_mode": False
+            "strict_mode": False,
+            "security_level": "medium",
+            "sanitize_inputs": True
         }
-    
-    def format_success_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+
+    # UPDATED: Standardized Response Methods
+    def format_success_response(
+        self, 
+        data: Any, 
+        message: str = None,
+        operation: str = None,
+        warnings: List[str] = None
+    ) -> Dict[str, Any]:
         """
-        Format a successful tool response.
+        Create a standardized success response.
         
         Args:
-            data: The response data
+            data: Response data
+            message: Optional success message
+            operation: Operation name for tracking
+            warnings: Optional warnings to include
             
         Returns:
-            Formatted success response
+            Standardized success response
         """
-        return {
-            "status": "success",
-            "tool": self.get_tool_name(),
-            **data
-        }
+        if self.standardized_responses:
+            if operation:
+                self.response_formatter.start_operation(operation)
+            return self.response_formatter.success(
+                data=data,
+                message=message or "Operation completed successfully",
+                warnings=warnings
+            )
+        else:
+            # Legacy format for backward compatibility
+            return {
+                "status": "success",
+                "data": data,
+                "message": message or "Operation completed successfully"
+            }
     
-    def format_error(self, message: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def format_error(
+        self, 
+        message: str, 
+        operation: str = None,
+        errors: List[Dict[str, str]] = None,
+        data: Any = None
+    ) -> Dict[str, Any]:
         """
-        Format an error response.
+        Create a standardized error response.
         
         Args:
             message: Error message
-            parameters: Optional parameters that caused the error
+            operation: Operation name for tracking
+            errors: List of field-specific errors
+            data: Optional partial data
             
         Returns:
-            Formatted error response
+            Standardized error response
         """
-        error_response = {
-            "status": "error",
-            "tool": self.get_tool_name(),
-            "error": {
+        if self.standardized_responses:
+            if operation:
+                self.response_formatter.start_operation(operation)
+            return self.response_formatter.error(
+                message=message,
+                errors=errors,
+                data=data
+            )
+        else:
+            # Legacy format for backward compatibility
+            return {
+                "status": "error",
                 "message": message,
-                "type": "tool_error"
+                "errors": errors or []
             }
-        }
-        
-        if parameters:
-            error_response["error"]["parameters"] = parameters
-        
-        return error_response
     
     def format_validation_error(self, errors: List[ToolValidationError]) -> Dict[str, Any]:
         """
-        Format a validation error response.
+        Create a standardized validation error response.
         
         Args:
             errors: List of validation errors
             
         Returns:
-            Formatted validation error response
+            Standardized validation error response
         """
-        error_details = []
-        for error in errors:
-            detail = {
-                "parameter": error.parameter,
-                "message": error.message
-            }
-            if error.value is not None:
-                detail["value"] = error.value
-            error_details.append(detail)
-        
-        return {
-            "status": "error",
-            "tool": self.get_tool_name(),
-            "error": {
+        if self.standardized_responses:
+            validation_errors = [
+                {"field": err.parameter, "message": err.message}
+                for err in errors
+            ]
+            return self.response_formatter.validation_error(validation_errors)
+        else:
+            # Legacy format for backward compatibility
+            return {
+                "status": "error",
                 "message": "Parameter validation failed",
-                "type": "validation_error",
-                "details": error_details
+                "errors": [
+                    {"parameter": err.parameter, "message": err.message, "value": err.value}
+                    for err in errors
+                ]
             }
-        }
     
     def format_enhanced_validation_error(self, validation_result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Format an enhanced validation error response.
+        Create a standardized enhanced validation error response.
         
         Args:
-            validation_result: Result from validate_parameters_enhanced
+            validation_result: Enhanced validation result with errors and warnings
             
         Returns:
-            Formatted validation error response
+            Standardized validation error response
         """
-        return {
-            "status": "error",
-            "tool": self.get_tool_name(),
-            "error": {
-                "message": "Parameter validation failed",
-                "type": "enhanced_validation_error",
-                "errors": validation_result["errors"],
-                "warnings": validation_result["warnings"]
+        if self.standardized_responses:
+            return self.response_formatter.validation_error(
+                validation_errors=validation_result.get("errors", []),
+                message="Enhanced parameter validation failed"
+            )
+        else:
+            # Legacy format for backward compatibility
+            return {
+                "status": "error",
+                "message": "Enhanced parameter validation failed",
+                "errors": validation_result.get("errors", []),
+                "warnings": validation_result.get("warnings", [])
             }
-        }
+    
+    def format_not_found(self, resource_type: str, identifier: str) -> Dict[str, Any]:
+        """
+        Create a standardized not found error response.
+        
+        Args:
+            resource_type: Type of resource not found
+            identifier: Resource identifier
+            
+        Returns:
+            Standardized not found response
+        """
+        if self.standardized_responses:
+            return self.response_formatter.not_found(resource_type, identifier)
+        else:
+            # Legacy format for backward compatibility
+            return {
+                "status": "error",
+                "message": f"{resource_type.title()} not found: {identifier}"
+            }
     
     def safe_execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Safely execute the tool with error handling and validation.
+        Safely execute the tool with comprehensive validation and error handling.
         
         Args:
-            parameters: Dictionary of parameters for the tool
+            parameters: Tool parameters
             
         Returns:
-            Dict containing the tool execution result or error
+            Standardized response with execution result or error
         """
         try:
-            # Use enhanced validation if available
+            self.logger.debug(f"Executing {self.get_tool_name()} with parameters: {parameters}")
+            
+            # Enhanced parameter validation if available
             if self.enhanced_validation_available:
                 validation_result = self.validate_parameters_enhanced(parameters)
                 if not validation_result["valid"]:
+                    self.logger.warning(f"Enhanced validation failed for {self.get_tool_name()}: {validation_result['errors']}")
                     return self.format_enhanced_validation_error(validation_result)
                 
-                # Use sanitized parameters for execution
+                # Use sanitized parameters
                 parameters = validation_result["sanitized_params"]
+                warnings = validation_result.get("warnings", [])
             else:
-                # Fall back to basic validation
+                # Basic validation fallback
                 validation_errors = self.validate_parameters(parameters)
                 if validation_errors:
+                    self.logger.warning(f"Validation failed for {self.get_tool_name()}: {validation_errors}")
                     return self.format_validation_error(validation_errors)
+                warnings = []
             
             # Execute the tool
             result = self.execute(parameters)
             
-            # Ensure result has proper format
-            if not isinstance(result, dict):
-                return self.format_error("Tool returned invalid response format")
+            # Add warnings to successful results if any
+            if warnings and isinstance(result, dict) and result.get("success"):
+                if "warnings" not in result:
+                    result["warnings"] = warnings
+                else:
+                    result["warnings"].extend(warnings)
             
-            if "status" not in result:
-                result["status"] = "success"
-                result["tool"] = self.get_tool_name()
-            
+            self.logger.debug(f"Successfully executed {self.get_tool_name()}")
             return result
             
         except Exception as e:
-            self.logger.error(f"Tool execution failed: {e}", exc_info=True)
-            return self.format_error(f"Tool execution failed: {str(e)}", parameters)
+            self.logger.error(f"Error executing {self.get_tool_name()}: {e}", exc_info=True)
+            return self.format_error(
+                message=f"Tool execution failed: {str(e)}",
+                operation="safe_execute"
+            )
     
+    # Utility methods for parameter sanitization
     def sanitize_path(self, path: str) -> str:
         """
-        Sanitize a file path parameter.
+        Sanitize file path to prevent path traversal attacks.
         
         Args:
             path: File path to sanitize
@@ -509,26 +569,23 @@ class BaseMCPTool(ABC):
         Returns:
             Sanitized path
         """
-        if not path:
-            return ""
+        import os
+        import posixpath
         
-        # Use enhanced security validator if available
-        if self.enhanced_validation_available and self.security_validator:
-            result = self.security_validator.validate_file_path(path)
-            return result.get("sanitized_path", "")
+        # Normalize path and remove dangerous components
+        normalized = posixpath.normpath(path)
         
-        # Basic path sanitization fallback
-        # Remove any null bytes
-        path = path.replace('\x00', '')
+        # Remove leading slashes and path traversal components
+        parts = []
+        for part in normalized.split('/'):
+            if part and part != '.' and part != '..':
+                parts.append(part)
         
-        # Strip whitespace
-        path = path.strip()
-        
-        return path
+        return '/'.join(parts)
     
     def sanitize_collection_name(self, name: str) -> str:
         """
-        Sanitize a collection name parameter.
+        Sanitize collection name to ensure it follows naming conventions.
         
         Args:
             name: Collection name to sanitize
@@ -536,22 +593,24 @@ class BaseMCPTool(ABC):
         Returns:
             Sanitized collection name
         """
-        if not name:
-            return ""
-        
-        # Basic collection name sanitization
-        # Remove special characters that might cause issues
         import re
-        name = re.sub(r'[^\w\-_.]', '', name)
         
-        return name.strip()
+        # Remove non-alphanumeric characters except hyphens and underscores
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', name)
+        
+        # Ensure it starts with a letter or underscore
+        if sanitized and not sanitized[0].isalpha() and sanitized[0] != '_':
+            sanitized = '_' + sanitized
+        
+        # Limit length
+        return sanitized[:50] if len(sanitized) > 50 else sanitized
     
     def parse_collections_list(self, collections: Optional[str]) -> List[str]:
         """
-        Parse a comma-separated list of collections.
+        Parse collections parameter that can be a single collection or comma-separated list.
         
         Args:
-            collections: Comma-separated collection names
+            collections: Collections string to parse
             
         Returns:
             List of collection names
@@ -559,11 +618,8 @@ class BaseMCPTool(ABC):
         if not collections:
             return []
         
-        # Split by comma and clean up
-        collection_list = [
-            self.sanitize_collection_name(c.strip()) 
-            for c in collections.split(',')
-        ]
+        if isinstance(collections, list):
+            return collections
         
-        # Filter out empty names
-        return [c for c in collection_list if c] 
+        # Split by comma and clean up
+        return [self.sanitize_collection_name(name.strip()) for name in collections.split(',') if name.strip()] 
