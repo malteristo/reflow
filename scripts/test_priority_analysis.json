@@ -1,0 +1,420 @@
+{
+  "timestamp": "2025-06-04T09:53:15.706148",
+  "analysis_summary": {
+    "total_failure_patterns": 6,
+    "high_priority_patterns": 0,
+    "medium_priority_patterns": 1,
+    "low_priority_patterns": 3,
+    "avg_roi_score": 2.8949999999999996
+  },
+  "prioritized_fixes": [
+    {
+      "test_name": "configuration_error (49 tests)",
+      "component": "Multiple",
+      "failure_pattern": "configuration_error",
+      "impact_analysis": {
+        "direct_tests_fixed": 49,
+        "dependent_tests_unlocked": 68,
+        "component_health_improvement": 1.2641100396202434,
+        "cascade_potential": 282,
+        "regression_risk": 0.5
+      },
+      "effort_estimate": {
+        "complexity_score": 8,
+        "estimated_hours": 12.25,
+        "dependency_complexity": 35,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 5.34,
+      "priority_rank": 1,
+      "recommended_action": "Medium Priority - Fix Soon",
+      "fix_suggestions": [
+        "Standardize test configuration setup patterns",
+        "Create configuration fixtures for consistent test setup",
+        "Review environment variable loading in tests",
+        "Check for missing test configuration files",
+        "Check configuration loading and validation logic"
+      ]
+    },
+    {
+      "test_name": "mock_error (38 tests)",
+      "component": "Multiple",
+      "failure_pattern": "mock_error",
+      "impact_analysis": {
+        "direct_tests_fixed": 38,
+        "dependent_tests_unlocked": 56,
+        "component_health_improvement": 1.5135812504233555,
+        "cascade_potential": 229,
+        "regression_risk": 0.44999999999999996
+      },
+      "effort_estimate": {
+        "complexity_score": 6,
+        "estimated_hours": 7.6000000000000005,
+        "dependency_complexity": 51,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 4.81,
+      "priority_rank": 2,
+      "recommended_action": "Low Priority - Fix When Time Permits",
+      "fix_suggestions": [
+        "Standardize mock setup patterns across test suite",
+        "Create reusable mock fixtures for common dependencies",
+        "Review mock configuration for external services",
+        "Update mock patches to match current interface signatures",
+        "Check ChromaDB integration and metadata handling",
+        "Verify embedding service configuration and API compatibility"
+      ]
+    },
+    {
+      "test_name": "assertion_failure (162 tests)",
+      "component": "Multiple",
+      "failure_pattern": "assertion_failure",
+      "impact_analysis": {
+        "direct_tests_fixed": 162,
+        "dependent_tests_unlocked": 205,
+        "component_health_improvement": 1.06863680937755,
+        "cascade_potential": 915,
+        "regression_risk": 0.7
+      },
+      "effort_estimate": {
+        "complexity_score": 12,
+        "estimated_hours": 81.0,
+        "dependency_complexity": 96,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 3.09,
+      "priority_rank": 3,
+      "recommended_action": "Low Priority - Fix When Time Permits",
+      "fix_suggestions": [
+        "Review test expectations vs actual implementation behavior",
+        "Check if tests expect outdated functionality",
+        "Verify assertion logic and update if implementation is correct",
+        "Consider batch updating tests with similar assertion patterns",
+        "Check configuration loading and validation logic",
+        "Check ChromaDB integration and metadata handling",
+        "Verify embedding service configuration and API compatibility"
+      ]
+    },
+    {
+      "test_name": "type_error (19 tests)",
+      "component": "Multiple",
+      "failure_pattern": "type_error",
+      "impact_analysis": {
+        "direct_tests_fixed": 19,
+        "dependent_tests_unlocked": 28,
+        "component_health_improvement": 0.7518796992481203,
+        "cascade_potential": 111,
+        "regression_risk": 0.6
+      },
+      "effort_estimate": {
+        "complexity_score": 10,
+        "estimated_hours": 5.7,
+        "dependency_complexity": 6,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 2.69,
+      "priority_rank": 4,
+      "recommended_action": "Low Priority - Fix When Time Permits",
+      "fix_suggestions": [
+        "Update method signatures to match current usage",
+        "Add proper type annotations throughout codebase",
+        "Review parameter passing conventions",
+        "Check for outdated function call patterns in tests",
+        "Check configuration loading and validation logic",
+        "Check ChromaDB integration and metadata handling"
+      ]
+    },
+    {
+      "test_name": "missing_method (36 tests)",
+      "component": "Multiple",
+      "failure_pattern": "missing_method",
+      "impact_analysis": {
+        "direct_tests_fixed": 36,
+        "dependent_tests_unlocked": 71,
+        "component_health_improvement": 1.6238307904974572,
+        "cascade_potential": 215,
+        "regression_risk": 0.7999999999999999
+      },
+      "effort_estimate": {
+        "complexity_score": 14,
+        "estimated_hours": 36.0,
+        "dependency_complexity": 31,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 0.97,
+      "priority_rank": 5,
+      "recommended_action": "Consider Deferring - High Effort, Low Impact",
+      "fix_suggestions": [
+        "Add missing method implementations to satisfy interface contracts",
+        "Review interface compatibility between components",
+        "Update method signatures to match current usage patterns",
+        "Consider creating abstract base classes for clear interfaces",
+        "Check configuration loading and validation logic",
+        "Check ChromaDB integration and metadata handling",
+        "Verify embedding service configuration and API compatibility"
+      ]
+    },
+    {
+      "test_name": "not_implemented (27 tests)",
+      "component": "Multiple",
+      "failure_pattern": "not_implemented",
+      "impact_analysis": {
+        "direct_tests_fixed": 27,
+        "dependent_tests_unlocked": 7,
+        "component_health_improvement": 0.5467372134038802,
+        "cascade_potential": 133,
+        "regression_risk": 0.8
+      },
+      "effort_estimate": {
+        "complexity_score": 16,
+        "estimated_hours": 54.0,
+        "dependency_complexity": 9,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 0.47,
+      "priority_rank": 6,
+      "recommended_action": "Consider Deferring - High Effort, Low Impact",
+      "fix_suggestions": [
+        "Identify if NotImplementedError is for performance tests only",
+        "Implement missing functionality or mark tests as skip if not needed",
+        "Prioritize implementation based on feature importance",
+        "Consider creating placeholder implementations with proper behavior"
+      ]
+    }
+  ],
+  "quick_wins": [],
+  "strategic_fixes": [
+    {
+      "test_name": "configuration_error (49 tests)",
+      "component": "Multiple",
+      "failure_pattern": "configuration_error",
+      "impact_analysis": {
+        "direct_tests_fixed": 49,
+        "dependent_tests_unlocked": 68,
+        "component_health_improvement": 1.2641100396202434,
+        "cascade_potential": 282,
+        "regression_risk": 0.5
+      },
+      "effort_estimate": {
+        "complexity_score": 8,
+        "estimated_hours": 12.25,
+        "dependency_complexity": 35,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 5.34,
+      "priority_rank": 1,
+      "recommended_action": "Medium Priority - Fix Soon",
+      "fix_suggestions": [
+        "Standardize test configuration setup patterns",
+        "Create configuration fixtures for consistent test setup",
+        "Review environment variable loading in tests",
+        "Check for missing test configuration files",
+        "Check configuration loading and validation logic"
+      ]
+    },
+    {
+      "test_name": "mock_error (38 tests)",
+      "component": "Multiple",
+      "failure_pattern": "mock_error",
+      "impact_analysis": {
+        "direct_tests_fixed": 38,
+        "dependent_tests_unlocked": 56,
+        "component_health_improvement": 1.5135812504233555,
+        "cascade_potential": 229,
+        "regression_risk": 0.44999999999999996
+      },
+      "effort_estimate": {
+        "complexity_score": 6,
+        "estimated_hours": 7.6000000000000005,
+        "dependency_complexity": 51,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 4.81,
+      "priority_rank": 2,
+      "recommended_action": "Low Priority - Fix When Time Permits",
+      "fix_suggestions": [
+        "Standardize mock setup patterns across test suite",
+        "Create reusable mock fixtures for common dependencies",
+        "Review mock configuration for external services",
+        "Update mock patches to match current interface signatures",
+        "Check ChromaDB integration and metadata handling",
+        "Verify embedding service configuration and API compatibility"
+      ]
+    },
+    {
+      "test_name": "assertion_failure (162 tests)",
+      "component": "Multiple",
+      "failure_pattern": "assertion_failure",
+      "impact_analysis": {
+        "direct_tests_fixed": 162,
+        "dependent_tests_unlocked": 205,
+        "component_health_improvement": 1.06863680937755,
+        "cascade_potential": 915,
+        "regression_risk": 0.7
+      },
+      "effort_estimate": {
+        "complexity_score": 12,
+        "estimated_hours": 81.0,
+        "dependency_complexity": 96,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 3.09,
+      "priority_rank": 3,
+      "recommended_action": "Low Priority - Fix When Time Permits",
+      "fix_suggestions": [
+        "Review test expectations vs actual implementation behavior",
+        "Check if tests expect outdated functionality",
+        "Verify assertion logic and update if implementation is correct",
+        "Consider batch updating tests with similar assertion patterns",
+        "Check configuration loading and validation logic",
+        "Check ChromaDB integration and metadata handling",
+        "Verify embedding service configuration and API compatibility"
+      ]
+    },
+    {
+      "test_name": "type_error (19 tests)",
+      "component": "Multiple",
+      "failure_pattern": "type_error",
+      "impact_analysis": {
+        "direct_tests_fixed": 19,
+        "dependent_tests_unlocked": 28,
+        "component_health_improvement": 0.7518796992481203,
+        "cascade_potential": 111,
+        "regression_risk": 0.6
+      },
+      "effort_estimate": {
+        "complexity_score": 10,
+        "estimated_hours": 5.7,
+        "dependency_complexity": 6,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 2.69,
+      "priority_rank": 4,
+      "recommended_action": "Low Priority - Fix When Time Permits",
+      "fix_suggestions": [
+        "Update method signatures to match current usage",
+        "Add proper type annotations throughout codebase",
+        "Review parameter passing conventions",
+        "Check for outdated function call patterns in tests",
+        "Check configuration loading and validation logic",
+        "Check ChromaDB integration and metadata handling"
+      ]
+    },
+    {
+      "test_name": "missing_method (36 tests)",
+      "component": "Multiple",
+      "failure_pattern": "missing_method",
+      "impact_analysis": {
+        "direct_tests_fixed": 36,
+        "dependent_tests_unlocked": 71,
+        "component_health_improvement": 1.6238307904974572,
+        "cascade_potential": 215,
+        "regression_risk": 0.7999999999999999
+      },
+      "effort_estimate": {
+        "complexity_score": 14,
+        "estimated_hours": 36.0,
+        "dependency_complexity": 31,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 0.97,
+      "priority_rank": 5,
+      "recommended_action": "Consider Deferring - High Effort, Low Impact",
+      "fix_suggestions": [
+        "Add missing method implementations to satisfy interface contracts",
+        "Review interface compatibility between components",
+        "Update method signatures to match current usage patterns",
+        "Consider creating abstract base classes for clear interfaces",
+        "Check configuration loading and validation logic",
+        "Check ChromaDB integration and metadata handling",
+        "Verify embedding service configuration and API compatibility"
+      ]
+    },
+    {
+      "test_name": "not_implemented (27 tests)",
+      "component": "Multiple",
+      "failure_pattern": "not_implemented",
+      "impact_analysis": {
+        "direct_tests_fixed": 27,
+        "dependent_tests_unlocked": 7,
+        "component_health_improvement": 0.5467372134038802,
+        "cascade_potential": 133,
+        "regression_risk": 0.8
+      },
+      "effort_estimate": {
+        "complexity_score": 16,
+        "estimated_hours": 54.0,
+        "dependency_complexity": 9,
+        "code_change_scope": "extensive",
+        "risk_level": "high"
+      },
+      "roi_score": 0.47,
+      "priority_rank": 6,
+      "recommended_action": "Consider Deferring - High Effort, Low Impact",
+      "fix_suggestions": [
+        "Identify if NotImplementedError is for performance tests only",
+        "Implement missing functionality or mark tests as skip if not needed",
+        "Prioritize implementation based on feature importance",
+        "Consider creating placeholder implementations with proper behavior"
+      ]
+    }
+  ],
+  "component_breakdown": {
+    "Multiple": {
+      "patterns": [
+        "configuration_error",
+        "mock_error",
+        "assertion_failure",
+        "type_error",
+        "missing_method",
+        "not_implemented"
+      ],
+      "total_roi": 17.369999999999997,
+      "avg_roi": 2.8949999999999996,
+      "total_tests_affected": 331,
+      "recommended_order": [
+        {
+          "pattern": "configuration_error",
+          "roi_score": 5.34,
+          "action": "Medium Priority - Fix Soon"
+        },
+        {
+          "pattern": "mock_error",
+          "roi_score": 4.81,
+          "action": "Low Priority - Fix When Time Permits"
+        },
+        {
+          "pattern": "assertion_failure",
+          "roi_score": 3.09,
+          "action": "Low Priority - Fix When Time Permits"
+        },
+        {
+          "pattern": "type_error",
+          "roi_score": 2.69,
+          "action": "Low Priority - Fix When Time Permits"
+        },
+        {
+          "pattern": "missing_method",
+          "roi_score": 0.97,
+          "action": "Consider Deferring - High Effort, Low Impact"
+        },
+        {
+          "pattern": "not_implemented",
+          "roi_score": 0.47,
+          "action": "Consider Deferring - High Effort, Low Impact"
+        }
+      ]
+    }
+  }
+}
