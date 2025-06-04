@@ -58,7 +58,7 @@ def test_basic_config_loading():
             print("\nTesting environment variable integration...")
             os.environ["ANTHROPIC_API_KEY"] = "test_anthropic_key"
             
-            config_with_env = config_manager._apply_environment_overrides(config)
+            config_with_env = config_manager.env_handler.apply_environment_overrides(config)
             api_key = config_with_env.get("api_keys", {}).get("anthropic")
             if api_key:
                 print(f"Environment variable override worked: {api_key}")

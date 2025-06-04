@@ -224,7 +224,7 @@ class TestConfigManagerErrorScenarios:
         with patch.dict(os.environ, {"RESEARCH_AGENT_LOG_LEVEL": "INVALID_LEVEL"}):
             # This should not fail, just log a warning
             try:
-                result = config_manager._apply_environment_overrides({"logging": {"level": "INFO"}})
+                result = config_manager.env_handler.apply_environment_overrides({"logging": {"level": "INFO"}})
                 # Should still work, just not apply the invalid env var
                 assert isinstance(result, dict)
             except Exception as e:

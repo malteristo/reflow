@@ -1,0 +1,117 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Failure Analysis Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { background: #f5f5f5; padding: 20px; border-radius: 5px; }
+        .section { margin: 20px 0; }
+        .pattern { background: #fff; border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .high-priority { border-left: 4px solid #ff4444; }
+        .medium-priority { border-left: 4px solid #ffaa44; }
+        .low-priority { border-left: 4px solid #44ff44; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Test Failure Analysis Report</h1>
+        <p>Generated: 2025-06-04T13:33:32.456399</p>
+        <p>Total Tests: 1325 | Passing: 1070 | Failing: 279</p>
+        <p>Success Rate: 80.8%</p>
+    </div>
+    
+    <div class="section">
+        <h2>High Priority Fixes</h2>
+        <ul>
+<li>Fix Test assertion failures (157 tests affected)</li>
+<li>Fix Configuration and setup errors (46 tests affected)</li>
+<li>Fix Mock setup and configuration issues (37 tests affected)</li>
+<li>Fix Missing method or attribute errors (35 tests affected)</li>
+<li>Fix NotImplementedError placeholders (27 tests affected)</li>
+
+        </ul>
+    </div>
+    
+    <div class="section">
+        <h2>Failure Patterns by Frequency</h2>
+
+        <div class="pattern high-priority">
+            <h3>Test assertion failures (157 occurrences)</h3>
+            <p><strong>Category:</strong> logic_errors</p>
+            <p><strong>Suggested Fix:</strong> Update test expectations or fix implementation logic</p>
+            <p><strong>Impact Score:</strong> 5/10</p>
+        </div>
+
+        <div class="pattern high-priority">
+            <h3>Configuration and setup errors (46 occurrences)</h3>
+            <p><strong>Category:</strong> configuration_issues</p>
+            <p><strong>Suggested Fix:</strong> Fix configuration setup and validation</p>
+            <p><strong>Impact Score:</strong> 8/10</p>
+        </div>
+
+        <div class="pattern high-priority">
+            <h3>Mock setup and configuration issues (37 occurrences)</h3>
+            <p><strong>Category:</strong> mock_issues</p>
+            <p><strong>Suggested Fix:</strong> Fix mock configuration and setup</p>
+            <p><strong>Impact Score:</strong> 7/10</p>
+        </div>
+
+        <div class="pattern high-priority">
+            <h3>Missing method or attribute errors (35 occurrences)</h3>
+            <p><strong>Category:</strong> interface_mismatch</p>
+            <p><strong>Suggested Fix:</strong> Add missing method implementation or check interface compatibility</p>
+            <p><strong>Impact Score:</strong> 8/10</p>
+        </div>
+
+        <div class="pattern high-priority">
+            <h3>NotImplementedError placeholders (27 occurrences)</h3>
+            <p><strong>Category:</strong> incomplete_implementation</p>
+            <p><strong>Suggested Fix:</strong> Implement missing functionality</p>
+            <p><strong>Impact Score:</strong> 6/10</p>
+        </div>
+
+        <div class="pattern high-priority">
+            <h3>Type compatibility issues (17 occurrences)</h3>
+            <p><strong>Category:</strong> type_mismatch</p>
+            <p><strong>Suggested Fix:</strong> Fix type annotations or method signatures</p>
+            <p><strong>Impact Score:</strong> 7/10</p>
+        </div>
+
+    </div>
+    
+    <div class="section">
+        <h2>Failures by Component</h2>
+        <table>
+            <tr><th>Component</th><th>Failure Count</th></tr>
+<tr><td>Other</td><td>73</td></tr>
+<tr><td>Embedding Service</td><td>37</td></tr>
+<tr><td>Performance Testing</td><td>30</td></tr>
+<tr><td>Integration Pipeline</td><td>24</td></tr>
+<tr><td>Command Line Interface</td><td>20</td></tr>
+<tr><td>Collection Management</td><td>20</td></tr>
+<tr><td>Vector Storage System</td><td>20</td></tr>
+<tr><td>RAG Query Engine</td><td>19</td></tr>
+<tr><td>Configuration System</td><td>18</td></tr>
+<tr><td>Document Processing</td><td>18</td></tr>
+
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>Systemic Issues Requiring Attention</h2>
+        <ul>
+<li>Update test expectations or fix implementation logic</li>
+<li>Fix configuration setup and validation</li>
+<li>Fix mock configuration and setup</li>
+<li>Add missing method implementation or check interface compatibility</li>
+<li>Implement missing functionality</li>
+<li>Fix type annotations or method signatures</li>
+
+        </ul>
+    </div>
+</body>
+</html>

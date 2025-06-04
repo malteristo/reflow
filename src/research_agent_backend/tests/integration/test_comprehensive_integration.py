@@ -448,7 +448,17 @@ class TestErrorHandlingAndEdgeCases:
         try:
             # Mock unhealthy vector store  
             with patch('src.research_agent_backend.core.vector_store.ChromaDBManager.health_check') as mock_health:
-                mock_health.return_value = {"status": "unhealthy", "error": "Connection failed"}
+                from src.research_agent_backend.core.vector_store.types import HealthStatus
+                from datetime import datetime
+                mock_health.return_value = HealthStatus(
+                    status="unhealthy",
+                    connected=False,
+                    persist_directory=None,
+                    collections_count=0,
+                    collections=[],
+                    timestamp=datetime.utcnow().isoformat(),
+                    errors=["Connection failed"]
+                )
                 
                 pipeline = DocumentProcessingPipeline(integration_config)
                 results = asyncio.run(pipeline.process_documents(sample_documents))
@@ -548,7 +558,7 @@ class TestCrossComponentIntegration:
             
             # Test basic integration
             health_status = vector_store.health_check()
-            assert health_status["status"] == "healthy"
+            assert health_status.status == "healthy"
             
             # Test query manager integration - check for actual methods
             test_query = "integration test query"
@@ -626,7 +636,7 @@ class TestCrossComponentIntegration:
             
             # Test configuration propagation
             health_status = vector_store.health_check()
-            assert health_status["status"] == "healthy"
+            assert health_status.status == "healthy"
             
         finally:
             remove_integration_patches() 
