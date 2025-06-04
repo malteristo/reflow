@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-06-04T12:37:04.097880",
+  "total_suggestions": 1,
+  "suggestions": [
+    {
+      "category": "mock_error",
+      "description": "Standardize 38 mock configurations and fix setup issues",
+      "steps": [
+        "1. Review mock setup patterns across failing tests",
+        "2. Create standardized mock fixtures for common objects",
+        "3. Update mock return values to match expected interfaces",
+        "4. Fix mock method signatures and property access",
+        "5. Add proper mock isolation between tests"
+      ],
+      "estimated_minutes": 228,
+      "confidence": 0.85,
+      "affected_tests": [
+        "test_search_with_collections_filter",
+        "test_reduce_dimensions_pca",
+        "test_initialization_with_valid_dependencies",
+        "test_insert_single_document_success",
+        "test_insert_document_with_chunking",
+        "test_insert_document_validation_failure",
+        "test_insert_document_embedding_failure",
+        "test_collection_type_validation",
+        "test_performance_regression_detection",
+        "test_query_method_execution_phases"
+      ],
+      "priority": "high"
+    }
+  ]
+}

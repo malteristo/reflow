@@ -786,11 +786,11 @@ class TestPersistentDatabaseOperations:
         # Initialize client but mock heartbeat to fail
         manager.initialize_database()
         
-        with patch.object(manager._client, 'heartbeat') as mock_heartbeat:
-            mock_heartbeat.side_effect = Exception("Connection test failed")
+        with patch.object(manager.client_manager, '_client') as mock_client:
+            mock_client.heartbeat.side_effect = Exception("Connection test failed")
             
             with pytest.raises(VectorStoreError) as exc_info:
-                manager._test_connection()
+                manager.client_manager._test_connection()
             
             assert "Database connection test failed" in str(exc_info.value)
 

@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-06-04T12:27:46.482225",
+  "total_suggestions": 1,
+  "suggestions": [
+    {
+      "category": "configuration_error",
+      "description": "Fix 49 configuration and setup issues",
+      "steps": [
+        "1. Check test configuration files for missing or incorrect settings",
+        "2. Ensure test environment variables are properly set",
+        "3. Verify test data files and fixtures are accessible",
+        "4. Update test setup/teardown methods for consistent state",
+        "5. Standardize configuration across test modules"
+      ],
+      "estimated_minutes": 392,
+      "confidence": 0.9,
+      "affected_tests": [
+        "test_configuration_system_cross_component",
+        "test_environment_variable_error_handling",
+        "test_cached_config_access",
+        "test_initialization_with_valid_dependencies",
+        "test_insert_single_document_success",
+        "test_insert_document_with_chunking",
+        "test_insert_document_validation_failure",
+        "test_insert_document_embedding_failure",
+        "test_complex_boolean_logic_filtering",
+        "test_configurable_result_limits"
+      ],
+      "priority": "high"
+    }
+  ]
+}

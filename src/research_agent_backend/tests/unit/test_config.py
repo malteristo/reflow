@@ -55,9 +55,9 @@ class TestConfigManagerInitialization:
                 load_env=False
             )
             assert config_manager.config_file == "custom.json"
-            assert config_manager.project_root == Path(temp_dir)
+            assert config_manager.project_root == Path(temp_dir).resolve()
     
-    @patch('research_agent_backend.utils.config.load_dotenv')
+    @patch('research_agent_backend.utils.config.file_operations.load_dotenv')
     def test_init_with_env_loading(self, mock_load_dotenv):
         """Test initialization with environment variable loading."""
         with tempfile.TemporaryDirectory() as temp_dir:
