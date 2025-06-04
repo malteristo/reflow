@@ -471,4 +471,19 @@ class LocalEmbeddingService(EmbeddingService):
         Returns:
             True if the service is ready, False otherwise
         """
-        return self.is_model_available() and self._model is not None 
+        return self.is_model_available() and self._model is not None
+
+    def generate_embeddings(self, text: str) -> List[float]:
+        """
+        Generate embeddings for a single text string.
+        
+        This method provides interface compatibility for RAG query engine
+        which expects a generate_embeddings method.
+        
+        Args:
+            text: Input text string
+            
+        Returns:
+            List of embedding values
+        """
+        return self.embed_text(text) 

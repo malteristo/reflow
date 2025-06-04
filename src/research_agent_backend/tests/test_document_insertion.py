@@ -42,6 +42,15 @@ class TestDocumentInsertionManager:
         mock_data_prep = Mock(spec=DataPreparationManager)
         mock_config = Mock(spec=ConfigManager)
         
+        # SYSTEMATIC FIX: Configure mock to return proper chunking configuration values
+        # instead of Mock objects that cause "chunk_size must be positive integer" error
+        mock_config.get.side_effect = lambda key, default=None: {
+            "chunking_strategy.chunk_size": 512,
+            "chunking_strategy.chunk_overlap": 50,
+            "chunking_strategy.preserve_code_blocks": True,
+            "chunking_strategy.preserve_tables": True
+        }.get(key, default)
+        
         # Expected to fail - class doesn't exist
         manager = DocumentInsertionManager(
             vector_store=mock_vector_store,

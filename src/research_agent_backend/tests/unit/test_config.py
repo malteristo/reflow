@@ -118,7 +118,56 @@ class TestConfigManagerBasicOperations:
         assert not config_manager.is_loaded
         config = config_manager.config
         assert config_manager.is_loaded
-        assert config == self.config_data
+        
+        # After auto-migration from 1.0.0 to 1.2.0, expect the expanded config
+        # This includes additional fields added by the migration process
+        expected_config = {
+            "version": "1.2.0",  # Auto-migrated from 1.0.0
+            "embedding_model": {
+                "name": "test-model",
+                "type": "local"
+            },
+            "logging": {
+                "level": "INFO",
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Added by migration
+            },
+            # Additional sections added by auto-migration
+            "chunking_strategy": {
+                "type": "hybrid",
+                "chunk_size": 512,
+                "chunk_overlap": 50,
+                "markdown_aware": True
+            },
+            "rag_pipeline": {
+                "vector_search_top_k": 50,
+                "rerank_top_k": 10,
+                "enable_reranking": True
+            },
+            "collections": {
+                "default_type": "research",
+                "auto_create": True,
+                "metadata_fields": ["source", "created_at", "user_id"]
+            },
+            "performance": {
+                "enable_caching": True,
+                "cache_directory": "./cache",
+                "embedding_cache_size": 1000,
+                "query_cache_size": 100,
+                "cache_ttl_hours": 24
+            },
+            "api": {
+                "timeout": 30,
+                "retry_attempts": 3,
+                "retry_delay": 1.0
+            },
+            "security": {
+                "max_query_length": 5000,
+                "max_document_size_mb": 100,
+                "allowed_file_types": [".md", ".txt", ".pdf", ".doc", ".docx"],
+                "enable_content_filtering": False
+            }
+        }
+        assert config == expected_config
     
     def test_get_method_dot_notation(self):
         """Test getting configuration values with dot notation."""

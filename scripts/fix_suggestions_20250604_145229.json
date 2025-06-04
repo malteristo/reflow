@@ -1,0 +1,162 @@
+{
+  "timestamp": "2025-06-04T14:52:29.879413",
+  "total_suggestions": 6,
+  "suggestions": [
+    {
+      "category": "configuration_error",
+      "description": "Fix 49 configuration and setup issues",
+      "steps": [
+        "1. Check test configuration files for missing or incorrect settings",
+        "2. Ensure test environment variables are properly set",
+        "3. Verify test data files and fixtures are accessible",
+        "4. Update test setup/teardown methods for consistent state",
+        "5. Standardize configuration across test modules"
+      ],
+      "estimated_minutes": 392,
+      "confidence": 0.9,
+      "affected_tests": [
+        "test_configuration_system_cross_component",
+        "test_environment_variable_error_handling",
+        "test_cached_config_access",
+        "test_initialization_with_valid_dependencies",
+        "test_insert_single_document_success",
+        "test_insert_document_with_chunking",
+        "test_insert_document_validation_failure",
+        "test_insert_document_embedding_failure",
+        "test_complex_boolean_logic_filtering",
+        "test_configurable_result_limits"
+      ],
+      "priority": "high"
+    },
+    {
+      "category": "mock_error",
+      "description": "Standardize 38 mock configurations and fix setup issues",
+      "steps": [
+        "1. Review mock setup patterns across failing tests",
+        "2. Create standardized mock fixtures for common objects",
+        "3. Update mock return values to match expected interfaces",
+        "4. Fix mock method signatures and property access",
+        "5. Add proper mock isolation between tests"
+      ],
+      "estimated_minutes": 228,
+      "confidence": 0.85,
+      "affected_tests": [
+        "test_search_with_collections_filter",
+        "test_reduce_dimensions_pca",
+        "test_initialization_with_valid_dependencies",
+        "test_insert_single_document_success",
+        "test_insert_document_with_chunking",
+        "test_insert_document_validation_failure",
+        "test_insert_document_embedding_failure",
+        "test_collection_type_validation",
+        "test_performance_regression_detection",
+        "test_query_method_execution_phases"
+      ],
+      "priority": "high"
+    },
+    {
+      "category": "assertion_failure",
+      "description": "Review and update 162 assertion failures - likely outdated test expectations",
+      "steps": [
+        "1. Run failing tests individually to understand expected vs actual behavior",
+        "2. Check if tests expect legacy functionality that has been updated",
+        "3. Update test assertions to match current implementation",
+        "4. Verify business logic is correct before updating tests",
+        "5. Group similar assertion patterns for batch fixes"
+      ],
+      "estimated_minutes": 810,
+      "confidence": 0.8,
+      "affected_tests": [
+        "test_add_external_result_with_metadata",
+        "test_add_external_result_from_file",
+        "test_add_external_result_validation_error",
+        "test_add_research_report_basic",
+        "test_add_research_report_with_auto_categorization",
+        "test_add_research_report_batch_mode",
+        "test_update_document_content",
+        "test_update_document_metadata_only",
+        "test_update_document_from_file",
+        "test_merge_duplicates_auto_detect"
+      ],
+      "priority": "medium"
+    },
+    {
+      "category": "type_error",
+      "description": "Fix 19 type and method signature mismatches",
+      "steps": [
+        "1. Review TypeError messages for signature mismatches",
+        "2. Update method signatures to match expected interfaces",
+        "3. Add proper type annotations where missing",
+        "4. Fix argument count and parameter names",
+        "5. Ensure compatibility with existing callers"
+      ],
+      "estimated_minutes": 133,
+      "confidence": 0.8,
+      "affected_tests": [
+        "test_chromadb_query_manager_integration",
+        "test_configuration_system_cross_component",
+        "test_database_connection_failures",
+        "test_error_recovery_mechanisms",
+        "test_health_check_with_client_failure",
+        "test_get_collections_by_type",
+        "test_create_collection",
+        "test_add_documents",
+        "test_query_collection",
+        "test_get_collection_stats"
+      ],
+      "priority": "medium"
+    },
+    {
+      "category": "missing_method",
+      "description": "Implement 36 missing methods and attributes",
+      "steps": [
+        "1. Identify missing methods from AttributeError messages",
+        "2. Add method stubs with appropriate signatures",
+        "3. Implement basic functionality or NotImplementedError",
+        "4. Update class interfaces to match test expectations",
+        "5. Consider interface compatibility requirements"
+      ],
+      "estimated_minutes": 360,
+      "confidence": 0.75,
+      "affected_tests": [
+        "test_environment_variable_error_handling",
+        "test_embedding_cache_integration",
+        "test_large_document_ingestion_performance",
+        "test_massive_document_collection_scalability",
+        "test_collection_query_performance_at_scale",
+        "test_query_result_serialization",
+        "test_query_pipeline_with_distance_threshold",
+        "test_query_pipeline_top_k_limiting",
+        "test_query_pipeline_rerank_top_n_limiting",
+        "test_query_result_serialization"
+      ],
+      "priority": "medium"
+    },
+    {
+      "category": "not_implemented",
+      "description": "Complete 27 placeholder implementations",
+      "steps": [
+        "1. Locate NotImplementedError placeholders in codebase",
+        "2. Implement basic functionality for each placeholder",
+        "3. Add proper error handling and validation",
+        "4. Write minimal implementation to pass tests",
+        "5. Consider grouping similar implementations for efficiency"
+      ],
+      "estimated_minutes": 405,
+      "confidence": 0.7,
+      "affected_tests": [
+        "test_complete_document_lifecycle_workflow",
+        "test_complete_document_lifecycle_workflow",
+        "test_research_workflow_simulation",
+        "test_research_workflow_simulation",
+        "test_collaborative_knowledge_base_workflow",
+        "test_collaborative_knowledge_base_workflow",
+        "test_production_deployment_simulation",
+        "test_production_deployment_simulation",
+        "test_document_ingestion_regression",
+        "test_query_performance_regression"
+      ],
+      "priority": "low"
+    }
+  ]
+}

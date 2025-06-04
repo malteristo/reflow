@@ -456,7 +456,7 @@ class TestDimensionalityReductionService:
         # Should return unchanged embeddings
         assert np.array_equal(reduced, embeddings)
 
-    @patch('src.research_agent_backend.core.data_preparation.PCA')
+    @patch('sklearn.decomposition.PCA')
     def test_reduce_dimensions_pca(self, mock_pca_class):
         """Test PCA dimensionality reduction."""
         # Mock PCA
