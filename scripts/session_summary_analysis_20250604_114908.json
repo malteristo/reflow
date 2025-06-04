@@ -1,0 +1,18 @@
+{
+  "session_id": "analysis_20250604_114908",
+  "duration_seconds": 855.25535,
+  "test_metrics": {
+    "total": 1325,
+    "passing": 1062,
+    "failing": 287,
+    "success_rate": 0.8015094339622642
+  },
+  "tools_used": [
+    "test_analyzer",
+    "component_runner",
+    "priority_matrix",
+    "suggestion_engine",
+    "dashboard"
+  ],
+  "reports_count": 4
+}
